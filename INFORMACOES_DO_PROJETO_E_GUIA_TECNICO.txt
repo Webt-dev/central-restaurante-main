@@ -1,0 +1,479 @@
+====================================================================================================
+           CENTRAL RESTAURANTE S.A. - DOCUMENTAÇÃO TÉCNICA E GUIA COMPLETO DO SISTEMA
+====================================================================================================
+Autor: Matheus Tsuji
+Repositório GitHub: https://github.com/Matheus-Tsuji/central-restaurante.git
+Versão: 1.0.0
+Tecnologias: Node.js (TypeScript) | Express | SQLite (better-sqlite3) | Socket.IO | React 18 | Vite | Electron | Dexie (IndexedDB)
+Objetivo deste documento: Servir como guia definitivo, enciclopédia técnica e fonte da verdade absoluta
+para Engenheiros de Software, Desenvolvedores e Modelos de Inteligência Artificial (IAs) que forem realizar
+manutenção, refatoração, testes, migrações ou expansão das funcionalidades deste projeto, sem risco de quebras.
+====================================================================================================
+
+----------------------------------------------------------------------------------------------------
+1. VISÃO GERAL DO PROJETO E ARQUITETURA MULTI-TELAS
+----------------------------------------------------------------------------------------------------
+O Central Restaurante S.A. é um sistema integrado de gestão gastronômica (POS / ERP / KDS) fullstack.
+Ele foi projetado para operar simultaneamente em múltiplos ambientes com sincronia em tempo real:
+1. Desktop (Electron): Aplicativo nativo empacotado para Windows com servidor Express embarcado.
+2. Web / Rede Local: Acesso simultâneo via navegador em computadores locais na porta 3000 (produção) ou 5173 (dev).
+3. Mobile (Garçom no Smartphone): Interface 100% responsiva (sem overflow horizontal), acessível via Wi-Fi pelo IP local ou escaneamento de QR Code.
+4. Smart TVs / Monitores (KDS): Telas dedicadas para visualização de comandas na Cozinha e no Bar.
+
+Módulos e Telas do Sistema:
+- /garcom     -> Painel Mobile do Garçom (seleção de mesas, cardápio por abas, carrinho, observações, modo offline com IndexedDB).
+- /cozinha    -> KDS Cozinha (fila de produção exclusiva de comidas, lanches, porções, pratos e sobremesas).
+- /bar        -> KDS Bar (fila de produção exclusiva de bebidas, refrigerantes, sucos, caipirinhas, drinks e coquetéis).
+- /caixa      -> Caixa Central POS (conferência de comandas, impressão de Pré-Conta, pagamentos únicos/divididos, troco, cupom fiscal TXT).
+- /relatorios -> Painel Financeiro e Estoque (faturamento total, métricas de consumo sem 10%, gorjetas 10%, controle de insumos e encerramento oficial de expediente).
+- /admin      -> Painel Administrativo (gestão completa de mesas, cardápio, estoque, configurações de CNPJ/Razão Social e credenciais de login).
+
+----------------------------------------------------------------------------------------------------
+2. BANCOS DE DADOS UTILIZADOS & MOTIVOS TÉCNICOS E ESTRATÉGICOS
+----------------------------------------------------------------------------------------------------
+O sistema emprega uma arquitetura de banco de dados híbrida Local-First com persistência em dois níveis:
+
+A. BANCO DE DADOS PRINCIPAL (BACKEND / DESKTOP CENTRAL): SQLite 3 via `better-sqlite3`
+- Arquivo de persistência: `database.sqlite` (na raiz da aplicação ou diretório do executável).
+- Driver utilizado: `better-sqlite3` (bindings C++ nativos para o V8 Engine).
+- Por que SQLite e não PostgreSQL, MySQL ou MongoDB?
+  1. Arquitetura Local-First / On-Premises (Tolerância Zero a Falhas de Internet Externa):
+     Restaurantes operam em ritmo frenético. Se a internet do bairro cair, o restaurante NÃO PODE PARAR.
+     O SQLite roda 100% local no computador principal (Caixa), garantindo que pedidos, pagamentos e KDS
+     continuem funcionando perfeitamente sem nenhuma dependência de nuvem.
+  2. Zero-Configuration e Zero-Instalação para o Usuário Final:
+     Sistemas como PostgreSQL ou MySQL exigem instalação de serviços em segundo plano, configuração de portas,
+     senhas de banco e gerenciamento de permissões do Windows. Com SQLite, o banco é um arquivo único embutido
+     diretamente no instalador do Electron. O cliente instala o `.exe` com 1 clique e tudo funciona na hora.
+  3. Desempenho Extremo com `better-sqlite3` (Síncrono e Sem Overhead de Rede):
+     O driver `better-sqlite3` executa chamadas nativas em C++ diretamente na memória do processo Node.js,
+     atingindo mais de 50.000 queries/segundo com consumo quase nulo de memória RAM. Não há latência de sockets TCP/IP.
+  4. Modo WAL (Write-Ahead Logging):
+     Configurado via `PRAGMA journal_mode = WAL;`. Permite concorrência real de leitura e escrita:
+     múltiplos garçons e telas de KDS podem consultar mesas e cardápio simultaneamente enquanto o caixa grava um pagamento,
+     sem travar as tabelas.
+  5. Integridade Transacional ACID:
+     Permite uso de `db.transaction(() => { ... })()` para garantir que operações complexas (ex: dar baixa em 10 itens
+     de estoque e fechar a mesa) ocorram de forma totalmente atômica — ou tudo é gravado com sucesso, ou nada é alterado.
+
+B. BANCO DE DADOS CLIENTE / MOBILE (GARÇOM): IndexedDB via `Dexie.js`
+- Camada de persistência: Armazenamento local IndexedDB dentro do navegador do smartphone do garçom.
+- Biblioteca utilizada: `Dexie.js` (wrapper tipado e reativo para IndexedDB).
+- Por que Dexie/IndexedDB no Frontend Mobile?
+  1. Resiliência a Pontos Cegos de Wi-Fi no Salão:
+     Salões de restaurantes frequentemente têm áreas com sinal fraco de Wi-Fi ou garçons transitando entre mesas externas.
+     Quando o garçom está sem sinal, o Dexie grava a comanda localmente na tabela `offline_orders`.
+  2. Fila de Sincronização Automática em Lote (Batch Sync):
+     Assim que o sinal de rede é restabelecido, o frontend detecta a conexão e envia a fila de pedidos offline
+     para o endpoint `POST /api/orders/sync-batch` utilizando um identificador único UUID (`offline_sync_id`),
+     evitando que pedidos sejam perdidos ou duplicados.
+  3. Cache de Cardápio e Mesas:
+     Permite que o garçom navegue pelas fotos, categorias e preços do cardápio instantaneamente, sem esperar round-trips HTTP.
+
+----------------------------------------------------------------------------------------------------
+3. ESTRATÉGIAS ARQUITETURAIS E DE ENGENHARIA ABORDADAS & PORQUÊS
+----------------------------------------------------------------------------------------------------
+1. ESTRATÉGIA LOCAL-FIRST & REDE LOCAL HÍBRIDA (0.0.0.0 HOSTING):
+   - O servidor Express e o WebSocket fazem bind na interface `0.0.0.0`, permitindo que o computador do caixa
+     atue simultaneamente como terminal PDV local e como Servidor de Rede Local para todos os celulares e TVs.
+   - Motivo: Economia de infraestrutura (dispensa servidores dedicados caros) e máxima velocidade (latência < 2ms).
+
+2. ESTRATÉGIA DE KDS COM FILTRO CATEGÓRICO INTELIGENTE (BAR vs COZINHA):
+   - A Cozinha (`findKitchenOrders`) filtra exclusivamente pratos e comidas (Lanches, Porções, Pratos Principais, Sobremesas).
+   - O Bar (`findBarOrders`) filtra exclusivamente drinks e bebidas (Caipirinhas, Drinks do Bar, Sucos, Cervejas, Refrigerantes).
+   - Motivo: Linhas de produção distintas. Bebidas têm preparo rápido no balcão e não devem poluir ou atrasar a fila
+     de pratos quentes e lanches que exigem tempo de chapa/fogão.
+
+3. ESTRATÉGIA DE FICHA TÉCNICA E BAIXA REAL DE ESTOQUE NO ENCERRAMENTO DO DIA:
+   - Cada prato possui uma receita mapeada em `menu_item_ingredients` com as gramaturas exatas de cada insumo
+     (ex: 180g de carne moída, 1 pão brioche, 4 fatias de queijo cheddar, 50ml de cachaça).
+   - A baixa física consolidada no estoque é calculada e executada atomicamente no momento do encerramento do expediente.
+   - Motivo: Agilidade extrema durante o horário de pico (evita sobrecarga de banco a cada clique de garçom)
+     e precisão contábil e de inventário no fechamento diário.
+
+4. ESTRATÉGIA DE PRÉ-CONTA E CONTA DA MESA ANTES DO PAGAMENTO:
+   - Habilita ao caixa a emissão imediata da "Pré-Conta" com o extrato discriminado, valores unitários, subtotal sem 10%,
+     taxa de 10% e total com 10%, antes de escolher forma de pagamento ou aplicar descontos.
+   - Motivo: Modelo operacional padrão de restaurantes, onde o garçom leva a pré-conta impressa para o cliente
+     conferir na mesa antes de receber o cartão ou dinheiro na maquininha portátil.
+
+5. ESTRATÉGIA DE ARMAZENAMENTO DE DOCUMENTOS EM FORMATO .TXT NA ÁREA DE TRABALHO:
+   - Cupons fiscais e relatórios de expediente são gerados em arquivos de texto plano (.TXT) formatados com largura de
+     coluna padrão (48 colunas) e gravados automaticamente na pasta `Restaurante_Documentos/` na Área de Trabalho do Windows.
+   - Motivo: Compatibilidade universal com 100% das impressoras térmicas (Daruma, Bematech, Epson, Elgin, POS-58, POS-80),
+     facilidade de backup diário e auditoria fiscal direta pelo proprietário ou contador em qualquer bloco de notas.
+
+6. ESTRATÉGIA DE WEBSOCKETS REATIVOS (SOCKET.IO) COM ZERO-POLLING:
+   - A comunicação entre telas utiliza WebSockets com eventos direcionados (`order:created`, `table:status_changed`, `payment:processed`).
+   - Motivo: Elimina requisições periódicas desnecessárias (polling em loop), reduzindo o uso de CPU do computador do caixa
+     e garantindo que um pedido feito pelo garçom apareça na Cozinha/Bar em menos de 10 milissegundos.
+
+7. ESTRATÉGIA DE AUTO-DESCOBERTA VIA BONJOUR/MDNS E PAREAMENTO POR QR CODE:
+   - O servidor anuncia o serviço na rede via mDNS (`bonjour-service`) e gera um QR Code no console e na tela do Caixa.
+   - Motivo: Facilidade de uso para leigos. Garçons e novos funcionários não precisam descobrir o IP do roteador;
+     basta abrir a câmera do smartphone, escanear o QR Code exibido na tela e começar a atender mesas.
+
+8. ESTRATÉGIA DE AUTENTICAÇÃO JWT E CRIPTOGRAFIA NATIVA COM SCRYPT:
+   - As senhas são protegidas com `scryptSync` + `salt` criptográfico de 16 bytes e os tokens JWT são assinados
+     com HMAC-SHA256 nativo do módulo `node:crypto`.
+   - Motivo: Segurança de nível bancário sem dependências externas pesadas ou vulnerabilidades de pacotes obsoletos.
+
+----------------------------------------------------------------------------------------------------
+4. STACK TECNOLÓGICA E BIBLIOTECAS (TECH STACK)
+----------------------------------------------------------------------------------------------------
+A. BACKEND:
+- Runtime: Node.js (ES Modules: "type": "module" no package.json).
+- Linguagem: TypeScript 7 (compilado para JavaScript ESM via tsc em dist/).
+- Framework Web: Express 5 (com suporte nativo a rotas assíncronas).
+- Banco de Dados: SQLite via `better-sqlite3` (modo síncrono e ultra veloz em memória e arquivo, com journal_mode=WAL).
+- Comunicação em Tempo Real: Socket.IO 4 (WebSockets com salas para kitchen, waiter e cashier).
+- Validação de Esquemas: Zod (validação de schemas de requisição no body e params).
+- Segurança & Autenticação:
+  * Senhas: Hash com `scryptSync` + `salt` aleatório de 16 bytes.
+  * Tokens: JWT gerado nativamente com HMAC-SHA256 (sem dependências vulneráveis externas).
+- Auto-descoberta na Rede: `bonjour-service` (mDNS) e geração de QR Code no terminal (`qrcode-terminal`).
+
+B. FRONTEND:
+- Framework: React 18 com TypeScript.
+- Bundler & Dev Server: Vite 8 (porta 5173 em dev, compilado para frontend/dist).
+- Roteamento: React Router DOM v7 (HashRouter/BrowserRouter com ErrorBoundary).
+- Ícones: `lucide-react`.
+- Banco de Dados Local / Modo Offline: Dexie.js (IndexedDB local para sincronização de pedidos do garçom sem internet).
+- QR Code no Frontend: Biblioteca `qrcode` (gera DataURL para pareamento de celulares).
+- Estilização: CSS Moderno e Responsivo (Design System baseado em CSS Variables, mobile-first, sem dependências pesadas de UI).
+
+C. DESKTOP ELECTRON:
+- Electron 43: Inicializa a janela desktop e instancia o servidor Node.js compilado em `dist/server.js`.
+- Electron-Builder 26: Configurado para gerar instalador NSIS (.exe) e a versão portável `dist-electron/win-unpacked/`.
+
+----------------------------------------------------------------------------------------------------
+5. ESTRUTURA DE DIRETÓRIOS E ARQUIVOS DO PROJETO
+----------------------------------------------------------------------------------------------------
+central-restaurante/
+├── package.json                   # Dependências do projeto, scripts e configuração do electron-builder
+├── tsconfig.json                  # Configuração do compilador TypeScript do Backend (ESM, target ES2022)
+├── main.js                        # Ponto de entrada do Electron (cria janela e carrega servidor local)
+├── database.sqlite                # Arquivo do banco de dados SQLite persistente
+├── build/                         # Ícones do aplicativo (.ico e .png para empacotamento Windows)
+│   ├── icon.ico
+│   └── icon.png
+├── dist/                          # Arquivos compilados do Backend TypeScript (gerados via `npm run build`)
+├── dist-electron/                 # Pacotes gerados pelo Electron Builder
+│   ├── win-unpacked/              # Executável portátil para testes diretos (Central Restaurante S.A.exe)
+│   └── Central Restaurante S.A Setup 1.0.0.exe # Instalador final do Windows
+├── src/                           # Código-Fonte do Backend (TypeScript)
+│   ├── server.ts                  # Inicialização do Express, Socket.IO, IP binding 0.0.0.0 e Bonjour
+│   ├── resetDb.ts                 # Script para zerar banco e repopular cardápio e insumos
+│   ├── config/
+│   │   ├── database.ts            # Inicialização do SQLite, schemas, índices, migrações e seed
+│   │   └── env.ts                 # Carregamento e validação de variáveis de ambiente
+│   ├── controllers/               # Controladores REST que recebem requisições HTTP
+│   │   ├── AuthController.ts      # Login e autenticação de usuários
+│   │   ├── CashierController.ts   # Sessões de caixa, pagamentos, pré-conta e relatórios
+│   │   ├── KitchenController.ts   # Filas KDS da Cozinha e do Bar e atualização de status
+│   │   ├── MenuItemController.ts  # Consulta pública do cardápio
+│   │   ├── OrderController.ts     # Criação de pedidos, cancelamento, alteração de itens
+│   │   ├── TableController.ts     # Consulta e status das mesas
+│   │   └── InventoryController.ts  # Consulta de insumos e estoque
+│   ├── middlewares/
+│   │   ├── authMiddleware.ts      # Verificação de token JWT e controle RBAC (ADMIN, CASHIER, WAITER, KITCHEN)
+│   │   ├── errorHandler.ts        # Tratamento global de erros da API
+│   │   └── validationMiddleware.ts# Validação de schemas Zod
+│   ├── models/
+│   │   └── types.ts               # Tipagens e interfaces TypeScript centrais do Backend
+│   ├── repositories/              # Camada de banco de dados (SQL puro com better-sqlite3)
+│   │   ├── AdminRepository.ts     # CRUD de mesas, cardápio, estoque e configurações gerais
+│   │   ├── CashierRepository.ts   # Processamento de pagamentos, relatórios diários e expediente
+│   │   ├── InventoryRepository.ts # Controle de estoque, deduções por receita e alertas de saldo
+│   │   ├── MenuItemRepository.ts  # Consultas de itens e categorias do cardápio
+│   │   ├── OrderRepository.ts     # Criação de pedidos, filtros Cozinha vs Bar e extrato da mesa
+│   │   ├── TableRepository.ts     # Atualização e busca de mesas
+│   │   └── UserRepository.ts      # Busca e verificação de operadores
+│   ├── routes/                    # Definição dos endpoints REST
+│   │   ├── admin.routes.ts        # Rotas protegidas do Administrador
+│   │   ├── auth.routes.ts         # Rotas públicas de login
+│   │   ├── cashier.routes.ts      # Rotas de caixa e relatórios
+│   │   ├── kitchen.routes.ts      # Rotas de KDS para Cozinha e Bar
+│   │   ├── menuItem.routes.ts     # Rotas de cardápio
+│   │   ├── order.routes.ts        # Rotas de criação e manipulação de comandas
+│   │   ├── system.routes.ts       # Informações de IP e dispositivos conectados
+│   │   ├── table.routes.ts        # Rotas de mesas
+│   │   └── index.ts               # Roteador central (/api)
+│   ├── services/                  # Camada de Regras de Negócio e eventos WebSocket
+│   │   ├── AuthService.ts
+│   │   ├── CashierService.ts
+│   │   ├── InventoryService.ts
+│   │   ├── KitchenService.ts
+│   │   ├── MenuItemService.ts
+│   │   ├── OrderService.ts
+│   │   └── TableService.ts
+│   ├── sockets/
+│   │   └── socketManager.ts       # Gerenciador Socket.IO e emissor de eventos para as telas
+│   └── utils/
+│       ├── crypto.ts              # Hash de senhas e geração/validação de tokens JWT
+│       ├── documentPaths.ts       # Resolução do caminho da Área de Trabalho do Windows (Desktop)
+│       ├── expedientReportGenerator.ts # Geração do relatório diário oficial em .TXT
+│       └── receiptGenerator.ts    # Geração do Cupom Fiscal e da Pré-Conta em .TXT
+└── frontend/                      # Código-Fonte do Frontend (React + Vite)
+    ├── package.json
+    ├── vite.config.ts             # Configuração do Vite (proxy /api, host 0.0.0.0)
+    └── src/
+        ├── App.tsx                # Roteamento central e ErrorBoundary
+        ├── main.tsx               # Ponto de montagem React no DOM
+        ├── types.ts               # Tipagens TypeScript do cliente
+        ├── components/
+        │   ├── Header.tsx         # Cabeçalho com status online/offline e menu de telas
+        │   ├── WaiterScreen.tsx   # Interface mobile para garçons
+        │   ├── KitchenScreen.tsx  # Interface KDS (usada para Cozinha e Bar via prop type)
+        │   ├── CashierScreen.tsx  # Interface do Caixa POS com impressão de pré-conta e pagamento
+        │   ├── ReportsStockScreen.tsx # Interface financeira, métricas e fechamento de expediente
+        │   └── AdminScreen.tsx    # Interface de configuração completa do restaurante
+        ├── services/
+        │   ├── api.ts             # Cliente HTTP fetch com autenticação automática e timeout
+        │   ├── offlineDb.ts       # Banco Dexie (IndexedDB) para armazenamento de pedidos offline
+        │   └── socket.ts          # Conexão Socket.IO cliente com auto-reconnect
+        └── utils/
+            ├── dateUtils.ts       # Formatação de datas brasileiras (DD/MM/YYYY e DD/MM/YYYY HH:MM)
+            └── printUtils.ts      # Disparo nativo de impressão para impressoras térmicas/padrão
+
+----------------------------------------------------------------------------------------------------
+6. MODELAGEM DO BANCO DE DADOS (TABELAS SQLITE E RELACIONAMENTOS)
+----------------------------------------------------------------------------------------------------
+O SQLite utiliza modo WAL (`PRAGMA journal_mode = WAL`) e Foreign Keys ativas (`PRAGMA foreign_keys = ON`).
+
+1. `users`:
+   - id TEXT PRIMARY KEY
+   - name TEXT NOT NULL
+   - username TEXT UNIQUE NOT NULL
+   - role TEXT NOT NULL ('ADMIN', 'CASHIER', 'WAITER', 'KITCHEN')
+   - password_hash TEXT NOT NULL
+   - created_at TEXT DEFAULT (datetime('now', 'localtime'))
+
+2. `tables`:
+   - id TEXT PRIMARY KEY
+   - number INTEGER UNIQUE NOT NULL
+   - name TEXT NOT NULL
+   - status TEXT NOT NULL DEFAULT 'FREE' ('FREE', 'OCCUPIED', 'PAYMENT_PENDING')
+   - created_at, updated_at TEXT
+
+3. `inventory` (Estoque de Insumos):
+   - id TEXT PRIMARY KEY
+   - name TEXT NOT NULL
+   - unit TEXT NOT NULL ('un', 'g', 'kg', 'dose', etc.)
+   - quantity REAL NOT NULL DEFAULT 0
+   - min_quantity REAL NOT NULL DEFAULT 0
+   - unit_price REAL NOT NULL DEFAULT 0
+   - created_at, updated_at TEXT
+
+4. `menu_items` (Cardápio):
+   - id TEXT PRIMARY KEY
+   - name TEXT NOT NULL
+   - description TEXT NOT NULL
+   - price REAL NOT NULL
+   - category TEXT NOT NULL ('Lanches', 'Pratos Principais', 'Porções', 'Bebidas', 'Drinks do Bar', 'Sobremesas')
+   - active INTEGER NOT NULL DEFAULT 1
+   - created_at TEXT
+
+5. `menu_item_ingredients` (Ficha Técnica / Receita):
+   - id TEXT PRIMARY KEY
+   - menu_item_id TEXT NOT NULL (FK -> menu_items.id)
+   - inventory_id TEXT NOT NULL (FK -> inventory.id)
+   - quantity_required REAL NOT NULL (quantidade de insumo gasta por 1 unidade do prato)
+
+6. `orders`:
+   - id TEXT PRIMARY KEY
+   - table_id TEXT NOT NULL (FK -> tables.id)
+   - waiter_id TEXT NOT NULL (FK -> users.id)
+   - status TEXT NOT NULL DEFAULT 'OPEN' ('OPEN', 'PREPARING', 'READY', 'DELIVERED', 'CLOSED', 'CANCELLED')
+   - total_amount REAL NOT NULL DEFAULT 0
+   - notes TEXT
+   - offline_sync_id TEXT UNIQUE
+   - cashier_session_id TEXT (FK -> cashier_sessions.id) # Vincula o pedido ao turno de caixa que recebeu o pagamento
+   - created_at, updated_at TEXT
+
+7. `order_items`:
+   - id TEXT PRIMARY KEY
+   - order_id TEXT NOT NULL (FK -> orders.id ON DELETE CASCADE)
+   - menu_item_id TEXT NOT NULL (FK -> menu_items.id)
+   - quantity INTEGER NOT NULL
+   - unit_price REAL NOT NULL
+   - total_price REAL NOT NULL
+   - notes TEXT
+   - status TEXT NOT NULL DEFAULT 'PENDING' ('PENDING', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED')
+   - created_at TEXT
+
+8. `cashier_sessions` (Turnos de Caixa):
+   - id TEXT PRIMARY KEY
+   - opened_by_id TEXT NOT NULL (FK -> users.id)
+   - closed_by_id TEXT (FK -> users.id)
+   - opened_at, closed_at TEXT
+   - initial_balance REAL NOT NULL DEFAULT 0
+   - final_balance REAL
+   - total_sales REAL NOT NULL DEFAULT 0
+   - total_cash, total_card, total_pix REAL NOT NULL DEFAULT 0
+   - status TEXT NOT NULL DEFAULT 'OPEN' ('OPEN', 'CLOSED')
+
+9. `payments`:
+   - id TEXT PRIMARY KEY
+   - table_id TEXT NOT NULL (FK -> tables.id)
+   - order_id TEXT NOT NULL (FK -> orders.id)
+   - cashier_session_id TEXT NOT NULL (FK -> cashier_sessions.id)
+   - payment_method TEXT NOT NULL ('CASH', 'CREDIT_CARD', 'DEBIT_CARD', 'PIX')
+   - amount REAL NOT NULL
+   - amount_paid REAL NOT NULL
+   - change_given REAL NOT NULL DEFAULT 0
+   - created_at TEXT
+
+10. `restaurant_settings`:
+    - key TEXT PRIMARY KEY
+    - value TEXT NOT NULL
+    - updated_at TEXT
+
+----------------------------------------------------------------------------------------------------
+7. REGRAS DE NEGÓCIO E FLUXOS CRÍTICOS (NÃO ALTERAR SEM LER ESTA SEÇÃO)
+----------------------------------------------------------------------------------------------------
+A. ROTEAMENTO DE ITENS: COZINHA vs BAR (KDS)
+- A Cozinha (`findKitchenOrders`) recebe EXCLUSIVAMENTE alimentos. O filtro SQL elimina categorias de bebidas:
+  `category NOT IN ('Bebidas', 'Drinks do Bar', 'Drinks', 'Bar', 'Bebida') AND category NOT LIKE '%Drink%' AND category NOT LIKE '%Bebida%'`
+- O Bar (`findBarOrders`) recebe EXCLUSIVAMENTE bebidas e drinks (incluindo Caipirinha, Gin Tônica, refrigerantes, sucos, etc.):
+  `category IN ('Bebidas', 'Drinks do Bar', 'Drinks', 'Bar', 'Bebida') OR category LIKE '%Drink%' OR category LIKE '%Bebida%'`
+- Ao adicionar novas categorias no painel admin, qualquer nome que contenha "Drink", "Bar" ou "Bebida" será automaticamente direcionado para a tela do Bar.
+
+B. PRÉ-CONTA E CONTA DA MESA NO CAIXA
+- O operador do caixa pode clicar em "IMPRIMIR CONTA DA MESA (PRÉ-CONTA)" a qualquer momento antes do pagamento.
+- Endpoint: `GET /api/cashier/table-bill/:tableId/print`
+- O sistema gera automaticamente o cupom em formato `.TXT` salvo na pasta `Restaurante_Documentos/comprovantes_mesas/` e retorna o texto para visualização e impressão direta na impressora física via `printReceiptContent()`.
+- O documento discrimina:
+  * Lista de itens com quantidade unitária, valor unitário e total por item.
+  * Subtotal (Valor Total Sem 10%).
+  * Taxa de Serviço (10% Garçom).
+  * Valor Total Com 10% e Valor Total Sem 10%.
+
+C. CÁLCULO DE TAXA DE SERVIÇO DE 10% E TOTALIZADORES FINANCEIROS
+- O faturamento é baseado em 3 totalizadores claros:
+  1. `total_sales` (Faturamento Total): Soma de todos os pagamentos efetuados na sessão de caixa.
+  2. `total_sales_subtotal` (Consumo Real): Soma de `o.total_amount` de todas as ordens vinculadas à sessão (`cashier_session_id`).
+  3. `total_sales_tips` (Taxa de Serviço 10%): Diferença exata entre o faturamento e o consumo (`total_sales - total_sales_subtotal`).
+- Quando todos os clientes pagam os 10%, a taxa registrada é exatamente 10% do consumo. Se o cliente optou por não pagar, a taxa é R$ 0,00.
+
+D. ENCERRAMENTO DO EXPEDIENTE DIÁRIO
+- O encerramento do dia é acionado via `POST /api/cashier/close-expedient`.
+- Ele executa atomicamente:
+  1. Cálculo dos rankings do dia: Prato mais vendido, Bebida mais vendida, Mesa top faturamento e Método de pagamento mais rentável.
+  2. Baixa física real no estoque SQLite (`UPDATE inventory SET quantity = MAX(0, quantity - ?)`), somando todos os ingredientes consumidos segundo as fichas técnicas.
+  3. Consolidação do relatório diário completo.
+  4. Fechamento da sessão de caixa (`status = 'CLOSED'`).
+  5. Geração do arquivo oficial em `.TXT` na pasta `Restaurante_Documentos/relatorios_expediente/` com todos os valores reais faturados.
+
+E. ARMAZENAMENTO DE DOCUMENTOS NO DESKTOP DO WINDOWS
+- O utilitário `documentPaths.ts` detecta dinamicamente a Área de Trabalho do Windows (suportando tanto `C:\Users\<user>\Desktop` quanto caminhos com OneDrive: `C:\Users\<user>\OneDrive\Desktop`).
+- Pastas criadas automaticamente:
+  * `Restaurante_Documentos/comprovantes_mesas/YYYY-MM-DD/` -> Cupons fiscais e pré-contas.
+  * `Restaurante_Documentos/relatorios_expediente/YYYY-MM-DD/` -> Relatórios de fechamento de expediente.
+
+----------------------------------------------------------------------------------------------------
+8. SCRIPTS NPM E COMANDOS ÚTEIS
+----------------------------------------------------------------------------------------------------
+Todos os comandos devem ser executados na raiz do projeto (`C:\Users\matsu\WebstormProjects\syst`):
+
+1. `npm run dev`:
+   Inicia o Backend em modo de desenvolvimento com recarregamento automático (via `tsx watch src/server.ts`).
+
+2. `npm run frontend:dev`:
+   Inicia o Frontend React no Vite (porta 5173).
+
+3. `npm run build`:
+   Compila os arquivos TypeScript do Backend para JavaScript ESM na pasta `dist/`.
+
+4. `npm run build:vite`:
+   Compila o Frontend React para arquivos estáticos na pasta `frontend/dist/`.
+
+5. `npm run build:electron`:
+   Empacota o aplicativo desktop via electron-builder, gerando o instalador NSIS e a pasta `dist-electron/win-unpacked/`.
+
+6. `npm run dist`:
+   Executa o pipeline completo de produção: compila Vite + compila Backend + empacota Electron.
+
+7. `npm run reset-db`:
+   Executa o script `src/resetDb.ts` para zerar o banco de dados e repopular automaticamente os usuários padrão, 10 mesas, cardápio com 30+ itens em 6 categorias e fichas técnicas completas com insumos.
+
+8. `npm run electron:dev`:
+   Compila frontend e backend e abre a janela do Electron para testes locais.
+
+----------------------------------------------------------------------------------------------------
+9. USUÁRIOS E CREDENCIAIS PADRÃO DO SISTEMA (SEED)
+----------------------------------------------------------------------------------------------------
+| Perfil (Role)       | Usuário | Senha       | Acesso Permitido                                    |
+|---------------------|---------|-------------|-----------------------------------------------------|
+| Administrador Geral | admin   | 123456      | Todas as telas (/admin, /caixa, /relatorios, etc.)  |
+| Caixa Principal     | caixa   | caixa123    | /caixa, /relatorios, /cozinha, /bar, /garcom       |
+| Garçom              | garcom  | garcom123   | /garcom                                             |
+| Cozinha / Bar       | cozinha | cozinha123  | /cozinha, /bar                                      |
+
+----------------------------------------------------------------------------------------------------
+10. GUIA RÁPIDO PARA A PRÓXIMA IA OU DESENVOLVEDOR (BOAS PRÁTICAS)
+----------------------------------------------------------------------------------------------------
+1. Importações ESM no Backend:
+   Sempre inclua a extensão `.js` ao importar arquivos locais TypeScript no Backend!
+   Exemplo correto: `import { CashierService } from '../services/CashierService.js';`
+   Se omitir o `.js`, o Node.js em modo ES Modules gerará erro em tempo de execução (`ERR_MODULE_NOT_FOUND`).
+
+2. Impressão Direta em Impressoras Térmicas:
+   No Frontend, use a função `printReceiptContent(conteudoTxt, titulo)` localizada em `frontend/src/utils/printUtils.ts`.
+   Ela abre uma janela sem margens com fonte monoespaçada e dispara `window.print()` sem interferir no layout da aplicação.
+
+3. Atualização do Executável Desktop:
+   Sempre que alterar arquivos em `src/` ou `frontend/src/`, execute:
+   `npm run build; npm run build:vite; npm run build:electron`
+   Isso atualizará a pasta `dist-electron/win-unpacked/` para que o teste no executável desktop reflita o código mais recente.
+
+4. Transações no SQLite:
+   Para operações que alteram múltiplos registros (como fechar mesa, abater estoque ou inserir múltiplos pagamentos),
+   sempre utilize `db.transaction(() => { ... })()` para garantir integridade ACID e evitar deadlocks.
+
+----------------------------------------------------------------------------------------------------
+11. SCRIPT DE VALIDAÇÃO AUTOMATIZADA PARA TESTE RÁPIDO (CÓDIGO DE TESTE)
+----------------------------------------------------------------------------------------------------
+Qualquer IA ou desenvolvedor pode criar um arquivo temporário `src/valida_sistema.ts` e rodar `npx tsx src/valida_sistema.ts`
+para testar automaticamente todo o ciclo de vida do restaurante:
+
+```typescript
+import { initDatabase, db } from './config/database.js';
+import { OrderRepository } from './repositories/OrderRepository.js';
+import { CashierRepository } from './repositories/CashierRepository.js';
+
+initDatabase();
+
+// 1. Cria comanda com prato e caipirinha
+const order = OrderRepository.createOrder(
+  { table_id: 't1', waiter_id: 'u_garcom' },
+  [{ menu_item_id: 'm1', quantity: 1 }, { menu_item_id: 'm19', quantity: 1 }]
+);
+
+// 2. Valida separação KDS
+const kitchen = OrderRepository.findKitchenOrders();
+const bar = OrderRepository.findBarOrders();
+console.log('KDS Cozinha OK:', !kitchen.some(o => o.items?.some(i => i.menu_item_name?.includes('Caipirinha'))));
+console.log('KDS Bar OK:', bar.some(o => o.items?.some(i => i.menu_item_name?.includes('Caipirinha'))));
+
+// 3. Emite Pré-Conta
+const preBill = CashierRepository.generateTablePreBill('t1', 'Caixa Teste');
+console.log('Pré-Conta OK:', preBill.receiptContent.length > 0);
+
+// 4. Fecha mesa com 10%
+const bill = OrderRepository.getTableBill('t1')!;
+const totalComDez = Number((bill.total_amount * 1.10).toFixed(2));
+CashierRepository.processPayment('t1', [{ method: 'PIX', amount: totalComDez }], 'u_caixa', true);
+
+// 5. Relatório Diário e Fechamento
+const report = CashierRepository.getDailyReport();
+console.log('Cálculo 10% OK:', report.total_sales_tips === Number((report.total_sales - report.total_sales_subtotal).toFixed(2)));
+
+const close = CashierRepository.closeDailyExpedient();
+console.log('Relatório .TXT não-zerado OK:', !close.report_text.includes('💰 FATURAMENTO TOTAL:                  R$ 0.00'));
+```
+
+====================================================================================================
+               FIM DA DOCUMENTAÇÃO TÉCNICA - CENTRAL RESTAURANTE S.A.
+====================================================================================================
+

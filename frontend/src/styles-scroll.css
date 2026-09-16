@@ -1,0 +1,118 @@
+/* =========================================================================
+   ADICIONE ESTE BLOCO AO FINAL DE frontend/src/index.css
+   Áreas com rolagem própria, para telas longas (cardápio, estoque, mesas).
+   ========================================================================= */
+
+/* Região que rola sozinha em vez de esticar a página inteira. */
+.scroll-area {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 6px;
+  /* Espaço para a barra não colar no conteúdo */
+  scrollbar-gutter: stable;
+  /* Rolagem suave no toque (celular/tablet) */
+  -webkit-overflow-scrolling: touch;
+  /* A rolagem para dentro da área e não "vaza" para a página */
+  overscroll-behavior: contain;
+}
+
+/* Alturas prontas para os casos do sistema */
+.scroll-sm { max-height: 260px; }
+.scroll-md { max-height: 420px; }
+.scroll-lg { max-height: 560px; }
+
+/* Cardápio do garçom: ocupa a altura da tela, descontando cabeçalho e filtros */
+.scroll-menu { max-height: calc(100vh - 330px); min-height: 280px; }
+
+/* Tabelas do admin (cardápio e estoque) */
+.scroll-table { max-height: calc(100vh - 300px); min-height: 300px; }
+
+/* Grade de mesas */
+.scroll-tables-grid { max-height: 300px; }
+
+/* Barra visível e discreta dentro das áreas roláveis */
+.scroll-area::-webkit-scrollbar { width: 10px; }
+.scroll-area::-webkit-scrollbar-track {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-full);
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: #B9C2CD;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--bg-subtle);
+}
+.scroll-area::-webkit-scrollbar-thumb:hover { background: #98A3B1; }
+
+/* Firefox */
+.scroll-area { scrollbar-width: thin; scrollbar-color: #B9C2CD var(--bg-subtle); }
+
+/* Cabeçalho fixo enquanto o corpo da tabela rola */
+.table-sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-subtle);
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+/* Barra de contagem acima das listas roláveis */
+.list-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding-bottom: 8px;
+}
+
+/* No celular a rolagem interna atrapalha: deixa a página crescer normalmente */
+@media (max-width: 768px) {
+  .scroll-menu,
+  .scroll-table,
+  .scroll-tables-grid {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
+/* ---------------------- Módulo fiscal (NFC-e) --------------------------- */
+
+.fiscal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+.fiscal-pendente { background: var(--amber-soft); color: var(--amber); }
+.fiscal-gerado { background: var(--brand-soft); color: var(--brand-hover); }
+.fiscal-autorizado { background: var(--green-soft); color: var(--green); }
+.fiscal-rejeitado { background: var(--red-soft); color: var(--red); }
+.fiscal-cancelado { background: var(--bg-subtle); color: var(--text-secondary); }
+
+.chave-acesso {
+  font-family: 'Courier New', monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+
+.aviso-homologacao {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--amber-soft);
+  border: 1px solid #F0DCBB;
+  color: var(--amber);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}

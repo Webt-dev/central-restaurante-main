@@ -1,0 +1,142 @@
+================================================================================
+                    CENTRAL DE RESTAURANTE - MANUAL DE INSTRUÇÕES
+                           GUIA PRÁTICO PASSO A PASSO
+================================================================================
+
+Seja bem-vindo ao Central de Restaurante! Este guia foi feito para que qualquer
+pessoa, mesmo sem conhecimentos técnicos em informática, possa operar o sistema
+com facilidade, segurança e rapidez.
+
+--------------------------------------------------------------------------------
+1. REQUISITO FUNDAMENTAL DE REDE (WI-FI SEM NECESSIDADE DE INTERNET)
+--------------------------------------------------------------------------------
+Para que os celulares dos garçons, tablets da cozinha e computadores conversa-
+rem entre si em tempo real, TODOS os aparelhos DEVEM estar conectados exatamente
+na mesma rede Wi-Fi do seu estabelecimento.
+
+[ ATENÇÃO - IMPORTANTE ]:
+O SEU ROTEADOR WI-FI NÃO PRECISA TER CONEXÃO COM A INTERNET (PROVEDOR/OPERADORA)!
+O roteador só precisa estar LIGADO na tomada transmitindo o sinal Wi-Fi para criar
+a rede local de transferência de dados.
+
+Sim! Mesmo se a sua internet da rua cair ou o provedor estiver fora do ar, o
+sistema CONTINUA FUNCIONANDO 100% PERFEITAMENTE. Toda a comunicação de pedidos,
+cozinha e caixa acontece diretamente entre os aparelhos dentro do estabelecimento,
+sem gastar dados e sem precisar de internet externa!
+
+[ DICA ]: Certifique-se apenas de que o computador principal (onde o sistema está
+instalado) e os celulares dos garçons estão conectados no mesmo nome de Wi-Fi.
+
+
+--------------------------------------------------------------------------------
+2. COMO INSTALAR E ABRIR O SISTEMA NO COMPUTADOR PRINCIPAL (PC)
+--------------------------------------------------------------------------------
+1. Na pasta de instalação do sistema no seu computador, dê dois cliques no arquivo:
+   "Central Restaurante S.A Setup 1.0.0.exe"
+2. O programa será instalado automaticamente e criará um ícone na sua Área de Trabalho.
+3. Clique duas vezes no ícone "Central de Restaurante" para abrir.
+4. O aplicativo abrirá em Tela Cheia no seu computador e o servidor iniciará em
+   segundo plano automaticamente.
+
+
+--------------------------------------------------------------------------------
+3. COMO CONECTAR CELULARES E TABLETS (GARÇONS E COZINHA)
+--------------------------------------------------------------------------------
+Você não precisa instalar nenhum aplicativo da Play Store ou App Store nos celulares!
+O sistema roda direto no navegador de qualquer celular (Google Chrome, Safari, etc).
+
+PASSO A PASSO PARA CONECTAR O CELULAR:
+1. No computador principal, clique na aba "Relatórios & Estoque" ou "Gestão".
+2. Clique no botão azul: "📱 Adicionar Dispositivo / Ler QR Code".
+3. Um painel vai se abrir na tela mostrando um QR Code e um endereço de internet.
+4. Abra a CÂMERA do celular do garçom e aponte para o QR Code na tela do computador.
+5. Clique no link que aparecer na tela do celular para abrir o sistema!
+
+OU DIGITE MANUALMENTE NO NAVEGADOR DO CELULAR:
+Se a câmera do celular não ler o QR Code automaticamente:
+1. Abra o navegador (Chrome ou Safari) no celular.
+2. Digite o endereço que aparece no computador, por exemplo:
+   http://192.168.0.172:3000
+   (IMPORTANTE: Sempre coloque "http://" no começo!).
+
+
+--------------------------------------------------------------------------------
+4. COMO USAR CADA TELA DO SISTEMA (MÓDULOS)
+--------------------------------------------------------------------------------
+
+📱 A) TELA DO GARÇOM (Atendimento e Pedidos)
+- Seleção de Mesa: Clique no número da mesa desejada (ex: Mesa 1, Mesa 2).
+- Cardápio por Categoria: Navegue pelas abas (Lanches, Pratos, Bebidas, Porções, Drinks, Sobremesas).
+- Adicionar Produtos: Clique no botão "+" ao lado do produto para colocar no carrinho.
+- Observações do Cliente: É possível adicionar notas ao pedido (ex: "Sem cebola", "Ponto do steak: ao ponto").
+- Enviar Pedido: Clique em "Enviar Pedido para Cozinha". O pedido irá instantaneamente para a tela da cozinha/bar e a mesa ficará marcada em VERMELHO (Ocupada).
+
+🍳 B) TELA DA COZINHA E BAR (Monitor KDS)
+- Visualização em Tempo Real: Quando o garçom faz um pedido, ele aparece automaticamente na tela da cozinha com um aviso sonoro.
+- Mudança de Status:
+  * Status PENDENTE (Amarelo): Pedido recém-chegado.
+  * Botão "Iniciar Preparo": Muda para azul (Em Preparo).
+  * Botão "Marcar como Pronto": O prato fica verde (Pronto) e avisa o garçom que já pode retirar.
+
+💵 C) TELA DO CAIXA (Fechamento de Comandas e Pagamentos)
+- Selecionar a Mesa: Clique na mesa que deseja fechar a conta.
+- Ver Resumo da Conta: O sistema exibe todos os itens consumidos, o subtotal e a taxa de serviço do garçom (10%).
+- Escolher Forma de Pagamento: Escolha entre Dinheiro, PIX, Cartão de Crédito ou Cartão de Débito.
+- Cálculo de Troco: Digite o valor pago em dinheiro para o sistema calcular o troco exato.
+- Finalizar e Imprimir Cupom: Clique em "Finalizar Conta". O sistema encerra a mesa, libera o status para VERDE (Livre) e gera o comprovante em PDF salvo automaticamente na sua Área de Trabalho.
+
+📊 D) TELA DE RELATÓRIOS & FECHAMENTO DO EXPEDIENTE
+- Painel Financeiro: Mostra o total faturado no dia, vendas em cartão/pix/dinheiro e a taxa de serviço acumulada.
+- Controle de Estoque: Exibe o nível de todos os insumos e destaca em vermelho os que estão com estoque baixo.
+- Encerrar Expediente (Fechamento do Dia):
+  1. No final do dia de trabalho, clique no botão "Encerrar Expediente".
+  2. O sistema gera o Relatório de Expediente em PDF com o resumo financeiro completo e salva na Área de Trabalho.
+  3. O painel financeiro do sistema é ZERADO automaticamente para iniciar zerado no dia seguinte.
+
+⚙️ E) TELA DE GESTÃO & ADMINISTRAÇÃO (Área Protegida por Senha)
+- Acesso Restrito: Ao clicar nesta aba, o sistema pedirá usuário e senha para segurança contra acessos não autorizados de terceiros.
+- CREDENCIAIS PADRÃO INICIAIS:
+  * Usuário: admin
+  * Senha:   123456
+- O que você pode customizar no Painel Admin:
+  1. Mesas: Adicionar novas mesas, mudar nome das mesas, excluir mesas.
+  2. Cardápio: Cadastrar novos pratos, alterar preços em tempo real, mudar nomes e descrições, desativar produtos temporariamente.
+  3. Estoque: Cadastrar insumos, dar entrada rápida no estoque (+5, +10, +50 unidades), alterar preço de custo e estoque mínimo.
+  4. Configurações Comerciais: Mudar Nome do Restaurante, CNPJ, Telefone, Endereço e Taxa de Serviço %.
+  5. SEGURANÇA: Alterar o usuário e a senha do Administrador a qualquer momento na sub-aba de Configurações para garantir total privacidade.
+
+
+--------------------------------------------------------------------------------
+5. ONDE OS DOCUMENTOS SÃO SALVOS NO SEU COMPUTADOR
+--------------------------------------------------------------------------------
+Todos os cupons fiscais de clientes e relatórios diários de fechamento são salvos
+organizados por datas na pasta oficial na sua Área de Trabalho:
+
+Área de Trabalho / Restaurante_Documentos /
+  ├── comprovantes_mesas / 2026-08-20 /   (Cupons fiscais emitidos no dia)
+  └── relatorios_expediente / 2026-08-20 / (Relatórios de fechamento diário)
+
+
+--------------------------------------------------------------------------------
+6. PERGUNTAS FREQUENTES & RESOLUÇÃO DE PROBLEMAS
+--------------------------------------------------------------------------------
+Q: Preciso ter internet da operadora/provedor para o sistema funcionar no restaurante?
+R: Não! O Wi-Fi não precisa de internet ativa. Ele só precisa estar ligado na tomada para conectar os aparelhos entre si na rede local. O sistema é 100% funcional offline.
+
+Q: O celular do garçom fica carregando infinitamente e não abre a página. O que fazer?
+R: 1. Verifique se o Wi-Fi do celular é exatamente o mesmo Wi-Fi do computador.
+   2. Verifique se digitou a porta ":3000" no final do endereço (ex: http://192.168.0.172:3000).
+   3. Abra a câmera e escaneie o QR Code atualizado na aba de Relatórios.
+
+Q: Posso alterar o usuário e a senha do Admin para a minha própria senha?
+R: Sim! Vá na aba "Gestão & Admin" -> digite a senha atual (123456) -> vá até o final da sub-aba "Configurações" e digite seu novo Usuário e nova Senha. Clique em salvar.
+
+Q: Quando eu fechar o aplicativo no PC e abrir de novo, a minha nova senha vai sumir?
+R: Não! A sua nova senha fica salva permanentemente no banco de dados do computador e continuará a mesma sempre que você abrir o sistema.
+
+Q: O dinheiro em espécie pode ser desativado no caixa?
+R: Não. Por legislação comercial brasileira, o dinheiro em espécie é aceitação obrigatória por lei. Você pode ativar/desativar apenas PIX e Cartões.
+
+================================================================================
+           CENTRAL DE RESTAURANTE S.A. - SISTEMA DE GESTÃO E OPERAÇÃO
+================================================================================

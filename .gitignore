@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dist-electron/
+frontend/node_modules/
+frontend/dist/
+comprovantes_mesas/
+relatorios_expediente/
+.idea/
+.vscode/
+*.log
+.env
+database.sqlite*
+*.sqlite
