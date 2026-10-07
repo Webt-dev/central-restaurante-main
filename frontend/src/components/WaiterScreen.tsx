@@ -227,7 +227,7 @@ export const WaiterScreen: React.FC = () => {
 
       if (result.status === 'rejected') {
         // A central recusou (ex.: estoque). O carrinho fica para o garçom ajustar.
-        setFeedback({ type: 'error', message: `Pedido não aceito: ${result.error}. Ele ficou em "Pendentes" para reenviar ou descartar.` });
+        setFeedback({ type: 'error', message: `Pedido não aceito: ${(result.error ?? '').replace(/\.$/, '')}. Ele ficou em "Pendentes" para reenviar ou descartar.` });
         return;
       }
 

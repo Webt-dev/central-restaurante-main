@@ -4,6 +4,7 @@ import { HttpError } from '../utils/httpError.js';
 import { CODIGOS_UF, CODIGO_PAGAMENTO_SEFAZ, somenteDigitos, validarCnpj, validarCpf } from '../utils/fiscalUtils.js';
 import { toCents, toReais } from '../utils/money.js';
 import { emitEvent } from '../sockets/socketManager.js';
+import { hasFeature } from '../license/LicenseService.js';
 import { AcbrMonitorProvider } from './AcbrMonitorProvider.js';
 import { SimulacaoProvider } from './SimulacaoProvider.js';
 import {
@@ -214,6 +215,9 @@ export async function ativar(enabled: boolean): Promise<{ enabled: boolean; stat
     return { enabled: false };
   }
 
+  if (!hasFeature('fiscal')) {
+    throw new HttpError(403, 'O plano contratado não inclui a emissão de NFC-e. Fale com o suporte para incluir o módulo fiscal.');
+  }
   const pendencias = validarConfig();
   if (pendencias.length) throw new HttpError(400, `Ainda falta: ${pendencias.join(' ')}`);
   const status = await testarConexao();

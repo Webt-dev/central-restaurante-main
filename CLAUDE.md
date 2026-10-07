@@ -18,6 +18,8 @@ programador). Comentários de código também em português, explicando o *porqu
 
 ## Comandos
 
+O servidor de licenças é um projeto à parte em `license-server/` (ver o README de lá).
+
 ```bash
 npm run dev                 # backend com tsx watch (porta 3000)
 npm --prefix frontend run dev   # frontend Vite (5173, com proxy para 3000)
@@ -64,10 +66,15 @@ Antes de dizer que terminou: `npm run typecheck`, `npm test` e typecheck do fron
     - O tema é escolhido só pelo ADMIN (Claro / Escuro / Usar cores do sistema).
     - Sessão em `services/session.ts`; telas por papel em `SCREENS_BY_ROLE`.
     - Pedido do garçom passa pela fila offline `services/outbox.ts` (idempotente por `offline_sync_id`).
-11. **Logs:** `src/utils/logger.ts` grava o console em arquivo e mascara senha/token/CSC.
+11. **Licença:** `src/license/LicenseService.ts` decide o estado (avaliação, em dia, vence em
+    breve, carência, bloqueado, inválida, relógio). O bloqueio (`requireLicense`) vale SÓ para
+    abrir mesa e lançar pedido; nunca bloqueie fechar conta, receber, NFC-e, exportação ou a
+    própria renovação. Módulos pagos são checados com `hasFeature('...')`.
+    Em desenvolvimento, `LICENSE_ENFORCE=0` mostra o estado sem bloquear.
+12. **Logs:** `src/utils/logger.ts` grava o console em arquivo e mascara senha/token/CSC.
     Não logar dados pessoais (CPF etc.).
-12. Não comitar: banco (`*.sqlite`, `*.db`), `.jwt-secret`, `backups/`, `release/`,
-    `.claude/launch.json`.
+13. Não comitar: banco (`*.sqlite`, `*.db`), `.jwt-secret`, `backups/`, `release/`,
+    `.claude/launch.json`, `license-server/keys/` (chave privada!), `license-server/data/`.
 
 ## Cuidados no ambiente (Windows do usuário)
 

@@ -9,6 +9,7 @@ import cashierRoutes from './cashier.routes.js';
 import systemRoutes from './system.routes.js';
 import adminRoutes from './admin.routes.js';
 import fiscalRoutes from './fiscal.routes.js';
+import licenseRoutes from './license.routes.js';
 
 const router = Router();
 
@@ -22,5 +23,6 @@ router.use('/cashier', cashierRoutes);
 router.use('/system', systemRoutes);
 router.use('/admin', adminRoutes);
 router.use('/fiscal', fiscalRoutes);
+router.use('/license', licenseRoutes);
 
 export default router;

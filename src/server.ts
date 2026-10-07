@@ -11,6 +11,7 @@ import { env } from './config/env.js';
 import { initDatabase, db } from './config/database.js';
 import { scheduleBackups } from './services/BackupService.js';
 import { startFiscalWorker } from './fiscal/FiscalService.js';
+import { startLicenseWorker } from './license/LicenseService.js';
 import { initSocketIO } from './sockets/socketManager.js';
 import apiRoutes from './routes/index.js';
 import { errorHandler } from './middlewares/errorHandler.js';
@@ -24,6 +25,7 @@ const __dirname = path.dirname(__filename);
 initDatabase();
 scheduleBackups(db);
 startFiscalWorker();
+startLicenseWorker();
 
 const app = express();
 const httpServer = createServer(app);

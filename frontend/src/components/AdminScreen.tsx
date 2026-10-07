@@ -3,6 +3,8 @@ import type { Table, MenuItem, InventoryItem, RestaurantSettings, ThemePreferenc
 import { UsersPanel } from './UsersPanel';
 import { SupervisorPinSettings } from './SupervisorPinSettings';
 import { FiscalModulePanel } from './FiscalModulePanel';
+import { LicensePanel } from './LicensePanel';
+import { useSearchParams } from 'react-router-dom';
 import { MenuFiscalFields, type MenuFiscalValues } from './MenuFiscalFields';
 import { api } from '../services/api';
 import { socket } from '../services/socket';
@@ -11,10 +13,10 @@ import { formatQuantity, cleanInventoryName, getStockHealth, UNIT_OPTIONS, unitL
 import {
   Utensils, Package, Settings, Plus, Trash2, Pencil, Save, X, CheckCircle2,
   AlertTriangle, Grid, CreditCard, Building2, RefreshCw, Search,
-  KeyRound, Percent, Users, Palette, Sun, Moon, Monitor, Blocks
+  KeyRound, Percent, Users, Palette, Sun, Moon, Monitor, Blocks, ShieldCheck
 } from 'lucide-react';
 
-type AdminTab = 'tables' | 'menu' | 'inventory' | 'users' | 'modules' | 'settings';
+type AdminTab = 'tables' | 'menu' | 'inventory' | 'users' | 'modules' | 'license' | 'settings';
 
 const THEME_OPTIONS: { key: ThemePreference; label: string; hint: string; Icon: typeof Sun }[] = [
   { key: 'light', label: 'Claro', hint: 'Fundo claro em todos os aparelhos', Icon: Sun },
@@ -31,7 +33,9 @@ const PAYMENT_OPTIONS = [
 export const AdminScreen: React.FC = () => {
   const [credForm, setCredForm] = useState({ currentPassword: '', newUsername: '', newPassword: '', confirmPassword: '' });
 
-  const [activeTab, setActiveTab] = useState<AdminTab>('tables');
+  // ?aba=licenca abre direto na licença (link da faixa de aviso).
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<AdminTab>(searchParams.get('aba') === 'licenca' ? 'license' : 'tables');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [tables, setTables] = useState<Table[]>([]);
@@ -417,6 +421,9 @@ export const AdminScreen: React.FC = () => {
         </button>
         <button onClick={() => setActiveTab('modules')} className={`tab ${activeTab === 'modules' ? 'is-active' : ''}`}>
           <Blocks size={16} /> Módulos
+        </button>
+        <button onClick={() => setActiveTab('license')} className={`tab ${activeTab === 'license' ? 'is-active' : ''}`}>
+          <ShieldCheck size={16} /> Licença
         </button>
         <button onClick={() => setActiveTab('settings')} className={`tab ${activeTab === 'settings' ? 'is-active' : ''}`}>
           <Settings size={16} /> Configurações
@@ -814,6 +821,9 @@ export const AdminScreen: React.FC = () => {
 
       {/* -------------------------------------------------------- MÓDULOS */}
       {activeTab === 'modules' && <FiscalModulePanel onMessage={showMessage} />}
+
+      {/* -------------------------------------------------------- LICENÇA */}
+      {activeTab === 'license' && <LicensePanel onMessage={showMessage} />}
 
       {/* -------------------------------------------------- CONFIGURAÇÕES */}
       {/* Centralizado: coluna estreita no meio da tela, mais confortável de ler */}

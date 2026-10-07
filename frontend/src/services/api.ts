@@ -83,6 +83,29 @@ export interface DocumentoFiscal {
   created_at: string;
 }
 
+export type LicenseState = 'TRIAL' | 'TRIAL_EXPIRED' | 'ACTIVE' | 'DUE_SOON' | 'GRACE' | 'BLOCKED' | 'INVALID' | 'CLOCK';
+
+export interface LicenseStatus {
+  state: LicenseState;
+  blocked: boolean;
+  message: string;
+  daysLeft?: number;
+  daysOverdue?: number;
+  daysUntilBlock?: number;
+  enforced: boolean;
+  // Só para ADMIN:
+  clientId?: string | null;
+  clientName?: string | null;
+  plan?: string | null;
+  features?: string[];
+  paidUntil?: string | null;
+  validUntil?: string | null;
+  serverUrl?: string | null;
+  fingerprint?: string;
+  lastRefreshAt?: string | null;
+  lastRefreshError?: string | null;
+}
+
 export interface ItemChangeOptions {
   reason?: string;
   supervisor_pin?: string;
@@ -462,6 +485,48 @@ export const api = {
 
   async cancelarFiscal(id: string, justificativa: string): Promise<DocumentoFiscal> {
     return await fetchWithTimeout(`/fiscal/documentos/${id}/cancelar`, { method: 'POST', body: JSON.stringify({ justificativa }) }, 50000);
+  },
+
+  // ==========================================
+  // LICENÇA
+  // ==========================================
+
+  async getLicenseStatus(): Promise<LicenseStatus> {
+    return await fetchWithTimeout('/license/status');
+  },
+
+  async activateLicense(server_url: string, client_id: string, activation_code: string): Promise<LicenseStatus> {
+    return await fetchWithTimeout('/license/activate', { method: 'POST', body: JSON.stringify({ server_url, client_id, activation_code }) }, 20000);
+  },
+
+  async refreshLicense(): Promise<LicenseStatus> {
+    return await fetchWithTimeout('/license/refresh', { method: 'POST' }, 20000);
+  },
+
+  async installLicense(token: string): Promise<LicenseStatus> {
+    return await fetchWithTimeout('/license/install', { method: 'POST', body: JSON.stringify({ token }) });
+  },
+
+  /**
+   * Renovação sem internet na central: ESTE aparelho (o celular do ADMIN, no 4G)
+   * busca a licença direto no servidor de licenças e a entrega à central pela rede local.
+   */
+  async fetchLicenseFromCloud(serverUrl: string, clientId: string, fingerprint: string): Promise<string> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(`${serverUrl}/v1/licenses/${encodeURIComponent(clientId)}?hw=${fingerprint}`, { signal: controller.signal });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.token) throw new Error(body.error || `Servidor de licenças respondeu ${res.status}.`);
+      return body.token as string;
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || err instanceof TypeError) {
+        throw new Error('Este aparelho também não alcançou o servidor de licenças. Use os dados móveis (4G) ou o arquivo de licença.');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   },
 
   // ==========================================

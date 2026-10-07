@@ -9,6 +9,7 @@ import { AdminScreen } from './components/AdminScreen';
 import { LoginScreen } from './components/LoginScreen';
 import { ChangePasswordScreen } from './components/ChangePasswordScreen';
 import { FiscalScreen } from './components/FiscalScreen';
+import { LicenseBanner } from './components/LicenseBanner';
 import { socket } from './services/socket';
 import { loadSettings } from './services/settings';
 import { useSession, canAccess, homeFor, type UserRole } from './services/session';
@@ -99,6 +100,7 @@ function AuthenticatedApp({ role }: { role: UserRole }) {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-main)' }}>
       <Header isOnline={isOnline} />
+      <LicenseBanner />
       <main>
         <Routes>
           <Route path="/" element={<Navigate to={homeFor(role)} replace />} />

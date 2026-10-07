@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { offlineDb, type OfflineOrder } from './offlineDb';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { socket } from './socket';
 import { getToken, subscribeSession } from './session';
 
@@ -63,7 +63,12 @@ export function flush(): Promise<void> {
           items: o.items.map(({ menu_item_id, quantity, notes }) => ({ menu_item_id, quantity, notes })),
           notes: o.notes || undefined
         })));
-      } catch {
+      } catch (err) {
+        if (err instanceof ApiError && err.code === 'LICENSE_BLOCKED') {
+          // Sistema bloqueado pela licença: o pedido fica guardado com o motivo à vista.
+          await Promise.all(pending.map(o => offlineDb!.offlineOrders.update(o.id!, { status: 'error', error: err.message, attempts: o.attempts + 1 })));
+          return;
+        }
         // Sem rede ou central fora do ar: tudo continua pendente.
         await Promise.all(pending.map(o => offlineDb!.offlineOrders.update(o.id!, { attempts: o.attempts + 1 })));
         return;

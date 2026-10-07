@@ -21,3 +21,8 @@ Restaurante_Documentos/
 # Configuração local do Claude Code
 .claude/launch.json
 release/
+
+# Chaves do servidor de licenças (a privada NUNCA vai para o git)
+license-server/keys/
+license-server/data/
+license-server/node_modules/

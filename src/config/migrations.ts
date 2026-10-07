@@ -196,6 +196,27 @@ const MIGRATIONS: Migration[] = [
         addColumn(db, 'menu_items', col, def);
       }
     }
+  },
+  {
+    version: 5,
+    name: 'licenca',
+    up: db => {
+      // Uma linha só: a licença desta instalação e o controle anti-relógio-atrasado.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS license_state (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          token TEXT,
+          client_id TEXT,
+          server_url TEXT,
+          trial_started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          last_seen_ms INTEGER NOT NULL DEFAULT 0,
+          last_refresh_at TEXT,
+          last_refresh_error TEXT,
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+        INSERT OR IGNORE INTO license_state (id) VALUES (1);
+      `);
+    }
   }
 ];
 
