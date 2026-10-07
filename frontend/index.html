@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      // Aplica o último tema salvo antes da primeira pintura (evita piscar claro/escuro).
+      (function () {
+        var t = 'system';
+        try { t = localStorage.getItem('cr.theme') || 'system'; } catch (e) {}
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
     <title>Central Restaurante - Sistema Multi-telas</title>
     <!-- Google Fonts: Plus Jakarta Sans & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">

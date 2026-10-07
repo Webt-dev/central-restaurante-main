@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "central-restaurante": "file:..",
     "dexie": "^4.4.5",
     "lucide-react": "^1.33.0",
     "qrcode": "^1.5.4",

@@ -1,6 +1,7 @@
 import Database, { type Database as SqliteDatabase } from 'better-sqlite3';
 import { env } from './env.js';
-import { hashPassword, verifyPassword } from '../utils/crypto.js';
+import { runMigrations } from './migrations.js';
+import { checkIntegrity } from '../services/BackupService.js';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -14,6 +15,8 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 export function initDatabase(): void {
+  checkIntegrity(db);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -148,31 +151,15 @@ export function initDatabase(): void {
     console.warn('Aviso na verificação de colunas da tabela orders:', migErr);
   }
 
+  runMigrations(db);
+
   seedDefaultData();
   normalizeInventoryNames();
 }
 
 function seedDefaultData(): void {
-  // ---------------------------------------------------------------- Usuários
-  const userCount = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
-
-  if (userCount === 0) {
-    const insertUser = db.prepare(
-      'INSERT INTO users (id, name, username, role, password_hash) VALUES (?, ?, ?, ?, ?)'
-    );
-    insertUser.run('u_admin', 'Administrador Central', 'admin', 'ADMIN', hashPassword('123456'));
-    insertUser.run('u_caixa', 'Caixa Principal', 'caixa', 'CASHIER', hashPassword('caixa123'));
-    insertUser.run('u_garcom', 'Garçom João', 'garcom', 'WAITER', hashPassword('garcom123'));
-    insertUser.run('u_cozinha', 'Cozinha Chefe', 'cozinha', 'KITCHEN', hashPassword('cozinha123'));
-    console.log('✅ Usuários iniciais cadastrados (admin, caixa, garcom, cozinha).');
-  } else {
-    const existingAdmin = db.prepare("SELECT * FROM users WHERE username = 'admin' OR role = 'ADMIN'").get() as any;
-    if (existingAdmin && verifyPassword('admin123', existingAdmin.password_hash)) {
-      const newHash = hashPassword('123456');
-      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newHash, existingAdmin.id);
-      console.log('🔑 Senha do administrador atualizada automaticamente para: 123456');
-    }
-  }
+  // Usuários: nenhum usuário padrão. O primeiro administrador é criado na
+  // tela de configuração inicial (POST /api/auth/setup), com senha própria.
 
   // ------------------------------------------------------------------ Mesas
   const tableCount = (db.prepare('SELECT COUNT(*) as count FROM tables').get() as { count: number }).count;
@@ -184,15 +171,18 @@ function seedDefaultData(): void {
     console.log('✅ 10 mesas iniciais criadas.');
   }
 
+  // Cardápio e estoque de demonstração: só no primeiro boot. Depois disso o
+  // catálogo é do cliente e o seed nunca mais toca nele (antes o INSERT OR
+  // REPLACE a cada boot devolvia preços e fichas técnicas ao valor de fábrica).
+  const menuCount = (db.prepare('SELECT COUNT(*) as count FROM menu_items').get() as { count: number }).count;
+  const inventoryCount = (db.prepare('SELECT COUNT(*) as count FROM inventory').get() as { count: number }).count;
+  if (menuCount > 0 || inventoryCount > 0) return;
+
+  db.transaction(seedDemoCatalog)();
+}
+
+function seedDemoCatalog(): void {
   // ---------------------------------------------------------------- Estoque
-  //
-  // CORREÇÃO IMPORTANTE: antes este bloco usava INSERT OR REPLACE e rodava a
-  // cada inicialização do servidor. Isso reescrevia a quantidade de TODOS os
-  // insumos de volta ao valor de fábrica, apagando todo o consumo e toda a
-  // reposição feita pelo gerente sempre que o sistema era reiniciado.
-  //
-  // Agora usamos INSERT OR IGNORE: o insumo é criado apenas na primeira vez e
-  // a quantidade em estoque nunca mais é sobrescrita pelo seed.
   const insertInv = db.prepare(
     'INSERT OR IGNORE INTO inventory (id, name, unit, quantity, min_quantity, unit_price) VALUES (?, ?, ?, ?, ?, ?)'
   );
@@ -241,10 +231,8 @@ function seedDefaultData(): void {
   insertInv.run(brownieBolo, 'Brownie de Chocolate', 'un', 50, 10, 5.00);
 
   // --------------------------------------------------------------- Cardápio
-  // O cardápio pode continuar sendo sincronizado (preço/descrição são do
-  // catálogo, não são um saldo que o restaurante movimenta no dia a dia).
   const insertMenu = db.prepare(
-    'INSERT OR REPLACE INTO menu_items (id, name, description, price, category, active) VALUES (?, ?, ?, ?, ?, 1)'
+    'INSERT OR IGNORE INTO menu_items (id, name, description, price, category, active) VALUES (?, ?, ?, ?, ?, 1)'
   );
 
   insertMenu.run('m1', 'X-Burguer Especial', 'Pão brioche, artesanal 180g, duplo cheddar', 32.90, 'Lanches');
@@ -292,7 +280,7 @@ function seedDefaultData(): void {
 
   // ---------------------------------------------------------- Ficha técnica
   const insertIng = db.prepare(
-    'INSERT OR REPLACE INTO menu_item_ingredients (id, menu_item_id, inventory_id, quantity_required) VALUES (?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO menu_item_ingredients (id, menu_item_id, inventory_id, quantity_required) VALUES (?, ?, ?, ?)'
   );
 
   insertIng.run('ing-m1-1', 'm1', paoBrioche, 1);
@@ -325,7 +313,7 @@ function seedDefaultData(): void {
   insertIng.run('ing-m23-1', 'm23', brownieBolo, 1);
   insertIng.run('ing-m23-2', 'm23', sorveteCreme, 100);
 
-  console.log('✅ Cardápio e ficha técnica sincronizados. Quantidades de estoque preservadas.');
+  console.log('✅ Cardápio e estoque de demonstração criados (primeiro boot).');
 }
 
 /**

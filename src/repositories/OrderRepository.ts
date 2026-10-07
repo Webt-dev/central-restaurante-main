@@ -4,6 +4,24 @@ import { InventoryRepository } from './InventoryRepository.js';
 import { MenuItemRepository } from './MenuItemRepository.js';
 import { TableRepository } from './TableRepository.js';
 import { randomUUID } from 'node:crypto';
+import { HttpError } from '../utils/httpError.js';
+import { lineTotal, sumReais, toCents, toReais } from '../utils/money.js';
+
+/** Quem está alterando o pedido e, se houver, o supervisor que autorizou com PIN. */
+export interface OrderActor {
+  userId: string;
+  role: string;
+  supervisorId?: string;
+}
+
+/**
+ * Item ainda não iniciado pela cozinha: garçom e caixa podem alterar.
+ * Item em preparo/pronto/entregue: só ADMIN, ou com PIN de supervisor.
+ */
+function assertCanChange(item: OrderItem, actor: OrderActor): void {
+  if (item.status === 'PENDING' || actor.role === 'ADMIN' || actor.supervisorId) return;
+  throw new HttpError(403, 'Este item já está em preparo. É preciso o PIN do supervisor.', 'SUPERVISOR_REQUIRED');
+}
 
 export class OrderRepository {
   static findById(id: string): Order | null {
@@ -118,6 +136,12 @@ export class OrderRepository {
     }));
   }
 
+  /**
+   * Cria o pedido inteiro numa única transação: validação, baixa de estoque e
+   * gravação. Se qualquer item falhar, nada é gravado e nenhum estoque é
+   * baixado (antes a baixa acontecia item a item, fora da transação, e um
+   * erro no 2º item deixava o 1º descontado para sempre).
+   */
   static createOrder(
     orderData: { table_id: string; waiter_id: string; notes?: string; offline_sync_id?: string },
     itemsData: { menu_item_id: string; quantity: number; notes?: string }[]
@@ -129,64 +153,68 @@ export class OrderRepository {
       }
     }
 
-    const table = TableRepository.findById(orderData.table_id);
-    if (!table) {
-      return { order: null, error: 'Mesa não encontrada.' };
-    }
-
-    let calculatedTotal = 0;
-    const preparedItems: { id: string; menu_item_id: string; quantity: number; unit_price: number; total_price: number; notes?: string }[] = [];
-
-    for (const item of itemsData) {
-      const menuItem = MenuItemRepository.findById(item.menu_item_id);
-      if (!menuItem || !menuItem.active) {
-        return { order: null, error: `Item do cardápio '${item.menu_item_id}' não encontrado ou inativo.` };
-      }
-
-      const stockCheck = InventoryRepository.deductStockForMenuItem(item.menu_item_id, item.quantity);
-      if (!stockCheck.success) {
-        return { order: null, error: `Estoque insuficiente para ${menuItem.name}: ${stockCheck.missingIngredient}` };
-      }
-
-      const total_price = Number((menuItem.price * item.quantity).toFixed(2));
-      calculatedTotal += total_price;
-
-      preparedItems.push({
-        id: randomUUID(),
-        menu_item_id: item.menu_item_id,
-        quantity: item.quantity,
-        unit_price: menuItem.price,
-        total_price,
-        notes: item.notes
-      });
-    }
-
     const orderId = randomUUID();
 
-    const createTransaction = db.transaction(() => {
-      db.prepare(`
-        INSERT INTO orders (id, table_id, waiter_id, status, total_amount, notes, offline_sync_id)
-        VALUES (?, ?, ?, 'OPEN', ?, ?, ?)
-      `).run(orderId, orderData.table_id, orderData.waiter_id, calculatedTotal, orderData.notes || null, orderData.offline_sync_id || null);
+    try {
+      db.transaction(() => {
+        // Repetido dentro da transação: dois envios simultâneos do mesmo pedido offline não duplicam.
+        if (orderData.offline_sync_id && this.findByOfflineSyncId(orderData.offline_sync_id)) {
+          throw new HttpError(409, 'DUPLICATE_SYNC');
+        }
 
-      const insertItem = db.prepare(`
-        INSERT INTO order_items (id, order_id, menu_item_id, quantity, unit_price, total_price, notes, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
-      `);
+        const table = TableRepository.findById(orderData.table_id);
+        if (!table) throw new HttpError(404, 'Mesa não encontrada.');
 
-      for (const pi of preparedItems) {
-        insertItem.run(pi.id, orderId, pi.menu_item_id, pi.quantity, pi.unit_price, pi.total_price, pi.notes || null);
+        let totalCents = 0;
+        const preparedItems: { id: string; menu_item_id: string; quantity: number; unit_price: number; total_price: number; notes?: string }[] = [];
+
+        for (const item of itemsData) {
+          const menuItem = MenuItemRepository.findById(item.menu_item_id);
+          if (!menuItem || !menuItem.active) {
+            throw new HttpError(400, `Item do cardápio '${item.menu_item_id}' não encontrado ou inativo.`);
+          }
+          const total_price = lineTotal(menuItem.price, item.quantity);
+          totalCents += toCents(total_price);
+          preparedItems.push({
+            id: randomUUID(),
+            menu_item_id: item.menu_item_id,
+            quantity: item.quantity,
+            unit_price: menuItem.price,
+            total_price,
+            notes: item.notes
+          });
+        }
+
+        InventoryRepository.assertAvailable(itemsData);
+
+        db.prepare(`
+          INSERT INTO orders (id, table_id, waiter_id, status, total_amount, notes, offline_sync_id)
+          VALUES (?, ?, ?, 'OPEN', ?, ?, ?)
+        `).run(orderId, orderData.table_id, orderData.waiter_id, toReais(totalCents), orderData.notes || null, orderData.offline_sync_id || null);
+
+        const insertItem = db.prepare(`
+          INSERT INTO order_items (id, order_id, menu_item_id, quantity, unit_price, total_price, notes, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+        `);
+
+        for (const pi of preparedItems) {
+          insertItem.run(pi.id, orderId, pi.menu_item_id, pi.quantity, pi.unit_price, pi.total_price, pi.notes || null);
+          InventoryRepository.consumeForOrderItem(pi.id, pi.menu_item_id, pi.quantity, orderData.waiter_id);
+        }
+
+        if (table.status === 'FREE') {
+          TableRepository.updateStatus(table.id, 'OCCUPIED');
+        }
+      })();
+    } catch (err: any) {
+      if (err instanceof HttpError && err.message === 'DUPLICATE_SYNC') {
+        return { order: this.findByOfflineSyncId(orderData.offline_sync_id!) };
       }
+      if (err instanceof HttpError) return { order: null, error: err.message };
+      throw err;
+    }
 
-      if (table.status === 'FREE') {
-        TableRepository.updateStatus(table.id, 'OCCUPIED');
-      }
-    });
-
-    createTransaction();
-
-    const createdOrder = this.findById(orderId);
-    return { order: createdOrder };
+    return { order: this.findById(orderId) };
   }
 
   static updateOrderStatus(orderId: string, status: OrderStatus): Order | null {
@@ -257,48 +285,79 @@ export class OrderRepository {
     return this.findById(orderId);
   }
 
-  static deleteOrderItem(itemId: string): { success: boolean; table_id?: string } {
-    const item = db.prepare('SELECT * FROM order_items WHERE id = ?').get(itemId) as OrderItem | undefined;
-    if (!item) return { success: false };
+  /** Recalcula o total do pedido ignorando itens cancelados; cancela o pedido se não sobrar nada. */
+  private static recalcOrder(orderId: string): void {
+    const prices = db.prepare(
+      "SELECT total_price FROM order_items WHERE order_id = ? AND status != 'CANCELLED'"
+    ).all(orderId) as { total_price: number }[];
+    db.prepare("UPDATE orders SET total_amount = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(sumReais(prices.map(p => p.total_price)), orderId);
 
-    const orderId = item.order_id;
-    const order = this.findById(orderId);
-    if (!order) return { success: false };
-
-    db.prepare('DELETE FROM order_items WHERE id = ?').run(itemId);
-
-    const newTotalObj = db.prepare('SELECT SUM(total_price) as total FROM order_items WHERE order_id = ?').get(orderId) as { total: number | null };
-    const newTotal = newTotalObj.total || 0;
-
-    db.prepare('UPDATE orders SET total_amount = ? WHERE id = ?').run(newTotal, orderId);
-
-    const remainingItemsCount = (db.prepare('SELECT COUNT(*) as count FROM order_items WHERE order_id = ?').get(orderId) as { count: number }).count;
-    if (remainingItemsCount === 0) {
-      db.prepare("UPDATE orders SET status = 'CANCELLED' WHERE id = ?").run(orderId);
+    const { count } = db.prepare(
+      "SELECT COUNT(*) as count FROM order_items WHERE order_id = ? AND status != 'CANCELLED'"
+    ).get(orderId) as { count: number };
+    if (count === 0) {
+      db.prepare("UPDATE orders SET status = 'CANCELLED', updated_at = datetime('now', 'localtime') WHERE id = ?").run(orderId);
     }
-
-    return { success: true, table_id: order.table_id };
   }
 
-  static updateOrderItemQuantity(itemId: string, quantity: number): { success: boolean; table_id?: string } {
+  private static loadEditableItem(itemId: string): { item: OrderItem; order: Order } {
     const item = db.prepare('SELECT * FROM order_items WHERE id = ?').get(itemId) as OrderItem | undefined;
-    if (!item) return { success: false };
+    if (!item) throw new HttpError(404, 'Item do pedido não encontrado.');
+    if (item.status === 'CANCELLED') throw new HttpError(409, 'Este item já foi cancelado.');
 
-    if (quantity <= 0) {
-      return this.deleteOrderItem(itemId);
+    const order = this.findById(item.order_id);
+    if (!order) throw new HttpError(404, 'Pedido não encontrado.');
+    if (order.status === 'CLOSED' || order.status === 'CANCELLED') {
+      throw new HttpError(409, 'Não é possível alterar um pedido já fechado.');
     }
+    return { item, order };
+  }
 
-    const newTotalPrice = Number((item.unit_price * quantity).toFixed(2));
-    db.prepare('UPDATE order_items SET quantity = ?, total_price = ? WHERE id = ?').run(quantity, newTotalPrice, itemId);
+  /**
+   * Cancela um item (nunca apaga): grava quem, quando e o motivo, devolve o
+   * estoque e recalcula o total. O garçom só cancela item que a cozinha ainda
+   * não começou; depois disso, só caixa ou gestão.
+   */
+  static cancelOrderItem(itemId: string, actor: OrderActor, reason?: string): { table_id: string; before: OrderItem } {
+    const { item, order } = this.loadEditableItem(itemId);
+    assertCanChange(item, actor);
 
-    const orderId = item.order_id;
-    const newTotalObj = db.prepare('SELECT SUM(total_price) as total FROM order_items WHERE order_id = ?').get(orderId) as { total: number | null };
-    const newTotal = newTotalObj.total || 0;
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE order_items
+        SET status = 'CANCELLED', cancelled_at = datetime('now', 'localtime'), cancelled_by = ?, cancel_reason = ?
+        WHERE id = ?
+      `).run(actor.userId, reason?.trim() || null, itemId);
+      InventoryRepository.restoreForOrderItem(itemId, item.quantity, item.quantity, actor.userId, reason);
+      this.recalcOrder(order.id);
+    })();
 
-    db.prepare('UPDATE orders SET total_amount = ? WHERE id = ?').run(newTotal, orderId);
+    return { table_id: order.table_id, before: item };
+  }
 
-    const order = this.findById(orderId);
-    return { success: true, table_id: order?.table_id };
+  static updateOrderItemQuantity(itemId: string, quantity: number, actor: OrderActor, reason?: string): { table_id: string; before: OrderItem } {
+    if (quantity <= 0) return this.cancelOrderItem(itemId, actor, reason);
+
+    const { item, order } = this.loadEditableItem(itemId);
+    assertCanChange(item, actor);
+    if (quantity === item.quantity) return { table_id: order.table_id, before: item };
+
+    db.transaction(() => {
+      if (quantity > item.quantity) {
+        const extra = [{ menu_item_id: item.menu_item_id, quantity: quantity - item.quantity }];
+        InventoryRepository.assertAvailable(extra);
+        InventoryRepository.consumeForOrderItem(itemId, item.menu_item_id, quantity - item.quantity, actor.userId);
+      } else {
+        InventoryRepository.restoreForOrderItem(itemId, item.quantity - quantity, item.quantity, actor.userId, reason);
+      }
+
+      const newTotalPrice = lineTotal(item.unit_price, quantity);
+      db.prepare('UPDATE order_items SET quantity = ?, total_price = ? WHERE id = ?').run(quantity, newTotalPrice, itemId);
+      this.recalcOrder(order.id);
+    })();
+
+    return { table_id: order.table_id, before: item };
   }
 
   static getTableBill(tableId: string): TableBillSummary | null {
@@ -306,20 +365,22 @@ export class OrderRepository {
     if (!table) return null;
 
     const orders = this.findOpenOrdersByTable(tableId);
-    let total_amount = 0;
+    let totalCents = 0;
 
     const itemsMap = new Map<string, { menu_item_id: string; name: string; quantity: number; unit_price: number; total_price: number }>();
 
+    // O total vem dos itens não cancelados (inclusive os cancelados pela
+    // cozinha), não do total_amount gravado no pedido.
     for (const order of orders) {
       if (order.status !== 'CANCELLED') {
-        total_amount += order.total_amount;
         if (order.items) {
           for (const item of order.items) {
             if (item.status !== 'CANCELLED') {
+              totalCents += toCents(item.total_price);
               const existing = itemsMap.get(item.menu_item_id);
               if (existing) {
                 existing.quantity += item.quantity;
-                existing.total_price += item.total_price;
+                existing.total_price = sumReais([existing.total_price, item.total_price]);
               } else {
                 itemsMap.set(item.menu_item_id, {
                   menu_item_id: item.menu_item_id,
@@ -338,7 +399,7 @@ export class OrderRepository {
     return {
       table,
       orders,
-      total_amount: Number(total_amount.toFixed(2)),
+      total_amount: toReais(totalCents),
       items_summary: Array.from(itemsMap.values())
     };
   }

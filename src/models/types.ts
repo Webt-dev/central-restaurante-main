@@ -6,8 +6,13 @@ export interface User {
   username: string;
   role: UserRole;
   password_hash: string;
+  active: number;
+  token_version: number;
+  pin_hash?: string | null;
   created_at: string;
 }
+
+export type PublicUser = Omit<User, 'password_hash' | 'token_version' | 'pin_hash'>;
 
 export interface InventoryItem {
   id: string;

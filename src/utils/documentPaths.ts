@@ -7,6 +7,12 @@ import path from 'node:path';
  * do computador do usuário, considerando todas as variações do Windows/Mac (OneDrive, Área de Trabalho, etc).
  */
 export function getDocumentsRootDir(): string {
+  // DOCUMENTS_DIR permite apontar para outra pasta (usado pelos testes).
+  if (process.env.DOCUMENTS_DIR) {
+    fs.mkdirSync(process.env.DOCUMENTS_DIR, { recursive: true });
+    return process.env.DOCUMENTS_DIR;
+  }
+
   const homeDir = os.homedir();
   
   const possibleDesktopPaths = [

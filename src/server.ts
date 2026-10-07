@@ -1,3 +1,5 @@
+// Primeiro import: passa a gravar tudo que o servidor escreve no console em arquivo.
+import './utils/logger.js';
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
@@ -6,7 +8,8 @@ import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import qrcode from 'qrcode-terminal';
 import { env } from './config/env.js';
-import { initDatabase } from './config/database.js';
+import { initDatabase, db } from './config/database.js';
+import { scheduleBackups } from './services/BackupService.js';
 import { initSocketIO } from './sockets/socketManager.js';
 import apiRoutes from './routes/index.js';
 import { errorHandler } from './middlewares/errorHandler.js';
@@ -18,6 +21,7 @@ const __dirname = path.dirname(__filename);
 
 // Inicializar banco de dados SQLite com tabelas e dados prévios
 initDatabase();
+scheduleBackups(db);
 
 const app = express();
 const httpServer = createServer(app);
@@ -26,8 +30,19 @@ const httpServer = createServer(app);
 initSocketIO(httpServer);
 
 // Middlewares globais
-app.use(cors({ origin: '*' }));
-app.use(express.json());
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  next();
+});
+// Em produção o frontend vem do próprio servidor (mesma origem) e não há CORS.
+// No desenvolvimento o Vite usa proxy, mas liberamos a origem para facilitar testes.
+if (env.NODE_ENV === 'development') {
+  app.use(cors({ origin: true }));
+}
+app.use(express.json({ limit: '1mb' }));
 
 // Rotas da API RESTful
 app.use('/api', apiRoutes);

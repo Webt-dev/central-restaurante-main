@@ -25,6 +25,10 @@ export const ReportsStockScreen: React.FC = () => {
 
   const [showCloseConfirmModal, setShowCloseConfirmModal] = useState<boolean>(false);
   const [expedientResult, setExpedientResult] = useState<any | null>(null);
+  // Conferência da gaveta no fechamento: esperado (do sistema) x contado (pelo operador).
+  const [expectedCash, setExpectedCash] = useState<number | null>(null);
+  const [countedCash, setCountedCash] = useState('');
+  const [closingNote, setClosingNote] = useState('');
   const [closingExpedient, setClosingExpedient] = useState<boolean>(false);
   const [reportTxtModal, setReportTxtModal] = useState<string | null>(null);
 
@@ -103,10 +107,28 @@ export const ReportsStockScreen: React.FC = () => {
     }
   }
 
+  async function openCloseExpedient() {
+    setCountedCash('');
+    setClosingNote('');
+    setExpectedCash(null);
+    setShowCloseConfirmModal(true);
+    try {
+      const session = await api.getCashierSession();
+      setExpectedCash(session ? session.cash.expected_cash : null);
+    } catch {
+      setExpectedCash(null);
+    }
+  }
+
   async function handleFinalCloseExpedient() {
+    const counted = Number(countedCash.replace(/\./g, '').replace(',', '.'));
+    if (expectedCash !== null && (!countedCash.trim() || !Number.isFinite(counted) || counted < 0)) {
+      alert('Conte o dinheiro da gaveta e informe o valor.');
+      return;
+    }
     setClosingExpedient(true);
     try {
-      const res = await api.closeDailyExpedient();
+      const res = await api.closeDailyExpedient(expectedCash !== null ? counted : undefined, closingNote);
       setExpedientResult(res);
       setShowCloseConfirmModal(false);
       loadData();
@@ -220,10 +242,34 @@ export const ReportsStockScreen: React.FC = () => {
               <strong>Deseja encerrar o dia {formatDateBR(report?.date)}?</strong>
               <ul style={{ paddingLeft: '18px', fontSize: '0.84rem', fontWeight: 400 }}>
                 <li>O faturamento do dia será consolidado e zerado para amanhã.</li>
-                <li>Os insumos usados serão descontados do estoque.</li>
+                <li>O consumo de insumos do dia vai para o relatório (o estoque já foi baixado nas vendas).</li>
                 <li>Um relatório em .TXT será salvo na Área de Trabalho.</li>
               </ul>
             </div>
+
+            {expectedCash !== null && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div className="field">
+                  <label className="label" htmlFor="counted-cash">Dinheiro contado na gaveta (R$)</label>
+                  <input id="counted-cash" className="input" inputMode="decimal" placeholder="0,00"
+                    value={countedCash} onChange={e => setCountedCash(e.target.value)} autoFocus />
+                  <span className="hint">Conte as notas e moedas antes de olhar o valor esperado.</span>
+                </div>
+                {countedCash.trim() !== '' && (() => {
+                  const diff = Math.round((Number(countedCash.replace(/\./g, '').replace(',', '.')) - expectedCash) * 100) / 100;
+                  if (!Number.isFinite(diff)) return null;
+                  return (
+                    <div className={`alert ${diff === 0 ? 'alert-success' : 'alert-warning'}`}>
+                      Esperado R$ {expectedCash.toFixed(2)} · {diff === 0 ? 'Caixa conferido, sem diferença.' : diff > 0 ? `Sobra de R$ ${diff.toFixed(2)}` : `Falta de R$ ${Math.abs(diff).toFixed(2)}`}
+                    </div>
+                  );
+                })()}
+                <div className="field">
+                  <label className="label" htmlFor="closing-note">Observação (obrigatória se houver diferença)</label>
+                  <input id="closing-note" className="input" value={closingNote} onChange={e => setClosingNote(e.target.value)} maxLength={300} />
+                </div>
+              </div>
+            )}
 
             <div className="modal-actions">
               <button onClick={() => setShowCloseConfirmModal(false)} className="btn btn-outline">Voltar</button>
@@ -248,6 +294,13 @@ export const ReportsStockScreen: React.FC = () => {
               </div>
               <button onClick={() => setExpedientResult(null)} className="btn-close"><X size={19} /></button>
             </div>
+
+            {expedientResult.cash_check && (
+              <div className={`alert ${expedientResult.cash_check.cash_difference === 0 ? 'alert-success' : 'alert-warning'}`}>
+                Gaveta: esperado R$ {expedientResult.cash_check.expected_cash.toFixed(2)}, contado R$ {expedientResult.cash_check.counted_cash.toFixed(2)}
+                {' '}— {expedientResult.cash_check.cash_difference === 0 ? 'sem diferença.' : `diferença de R$ ${expedientResult.cash_check.cash_difference.toFixed(2)}.`}
+              </div>
+            )}
 
             {expedientResult.report_text && (
               <div className="alert alert-success" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
@@ -372,7 +425,7 @@ export const ReportsStockScreen: React.FC = () => {
         <div className="toolbar">
           <button onClick={handleOpenDeviceModal} className="btn btn-outline btn-sm"><Smartphone size={15} /> Conectar aparelho</button>
           <button onClick={loadData} className="btn btn-outline btn-sm"><RefreshCw size={15} className={refreshing ? 'spin' : ''} /> Atualizar</button>
-          <button onClick={() => setShowCloseConfirmModal(true)} className="btn btn-danger btn-sm"><Lock size={15} /> Encerrar expediente</button>
+          <button onClick={openCloseExpedient} className="btn btn-danger btn-sm"><Lock size={15} /> Encerrar expediente</button>
         </div>
       </div>
 

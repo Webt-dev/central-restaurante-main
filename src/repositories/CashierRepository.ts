@@ -7,6 +7,8 @@ import { AdminRepository } from './AdminRepository.js';
 import { generateReceiptTxt, generatePreBillReceiptTxt } from '../utils/receiptGenerator.js';
 import { generateExpedientReportTxt } from '../utils/expedientReportGenerator.js';
 import { randomUUID } from 'node:crypto';
+import { HttpError } from '../utils/httpError.js';
+import { toCents, toReais, percentOf } from '../utils/money.js';
 
 function getLocalDateStr(): string {
   const d = new Date();
@@ -32,8 +34,29 @@ export function getServiceTaxPercent(): number {
 
 function applyServiceTax(subtotal: number, includeTip: boolean): { percent: number; tip: number; total: number } {
   const percent = getServiceTaxPercent();
-  const tip = includeTip && percent > 0 ? Number(((subtotal * percent) / 100).toFixed(2)) : 0;
-  return { percent, tip, total: Number((subtotal + tip).toFixed(2)) };
+  const tip = includeTip && percent > 0 ? percentOf(subtotal, percent) : 0;
+  return { percent, tip, total: toReais(toCents(subtotal) + toCents(tip)) };
+}
+
+export interface CashMovement {
+  id: string;
+  session_id: string;
+  type: 'SANGRIA' | 'SUPRIMENTO';
+  amount: number;
+  reason: string;
+  user_id: string;
+  user_name?: string;
+  created_at: string;
+}
+
+export interface CashSummary {
+  initial_balance: number;
+  cash_sales: number;
+  suprimentos: number;
+  sangrias: number;
+  /** Fundo de troco + vendas em dinheiro + suprimentos − sangrias. */
+  expected_cash: number;
+  movements: CashMovement[];
 }
 
 export class CashierRepository {
@@ -64,19 +87,74 @@ export class CashierRepository {
     return this.getActiveSession()!;
   }
 
-  static closeSession(sessionId: string, userId: string, finalBalance: number): CashRegisterSession {
+  static listCashMovements(sessionId: string): CashMovement[] {
+    return db.prepare(`
+      SELECT cm.*, u.name as user_name
+      FROM cash_movements cm
+      JOIN users u ON u.id = cm.user_id
+      WHERE cm.session_id = ?
+      ORDER BY cm.created_at ASC
+    `).all(sessionId) as CashMovement[];
+  }
+
+  static getCashSummary(session: CashRegisterSession): CashSummary {
+    const movements = this.listCashMovements(session.id);
+    const sum = (type: CashMovement['type']) => movements.filter(m => m.type === type).reduce((acc, m) => acc + toCents(m.amount), 0);
+    const expected = toCents(session.initial_balance) + toCents(session.total_cash) + sum('SUPRIMENTO') - sum('SANGRIA');
+    return {
+      initial_balance: session.initial_balance,
+      cash_sales: session.total_cash,
+      suprimentos: toReais(sum('SUPRIMENTO')),
+      sangrias: toReais(sum('SANGRIA')),
+      expected_cash: toReais(expected),
+      movements
+    };
+  }
+
+  /** Sangria (retirada) ou suprimento (reforço de troco) na gaveta do caixa aberto. */
+  static addCashMovement(type: CashMovement['type'], amount: number, reason: string, userId: string): CashMovement {
+    const session = this.getActiveSession();
+    if (!session) throw new HttpError(409, 'Não há caixa aberto. Abra o caixa antes.');
+    const cents = toCents(amount);
+    if (cents <= 0) throw new HttpError(400, 'Informe um valor maior que zero.');
+    if (type === 'SANGRIA' && cents > toCents(this.getCashSummary(session).expected_cash)) {
+      throw new HttpError(400, 'A sangria é maior que o dinheiro esperado na gaveta.');
+    }
+
+    const id = randomUUID();
+    db.prepare(`
+      INSERT INTO cash_movements (id, session_id, type, amount, reason, user_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, session.id, type, toReais(cents), reason, userId);
+    return this.listCashMovements(session.id).find(m => m.id === id)!;
+  }
+
+  /**
+   * Fecha o caixa com conferência: grava o dinheiro esperado, o contado e a
+   * diferença (antes gravava como "saldo final" o que o operador digitasse,
+   * sem comparar com nada).
+   */
+  static closeSession(sessionId: string, userId: string, countedCash: number, note?: string): CashRegisterSession & { expected_cash: number; counted_cash: number; cash_difference: number } {
     const session = this.getActiveSession();
     if (!session || session.id !== sessionId) {
-      throw new Error('Sessão de caixa não encontrada ou já encerrada.');
+      throw new HttpError(404, 'Sessão de caixa não encontrada ou já encerrada.');
+    }
+
+    const expected = this.getCashSummary(session).expected_cash;
+    const counted = toReais(toCents(countedCash));
+    const difference = toReais(toCents(counted) - toCents(expected));
+    if (difference !== 0 && !note?.trim()) {
+      throw new HttpError(400, `Há diferença de R$ ${difference.toFixed(2)} no caixa. Explique na observação para encerrar.`);
     }
 
     db.prepare(`
       UPDATE cashier_sessions
-      SET closed_by_id = ?, closed_at = datetime('now', 'localtime'), final_balance = ?, status = 'CLOSED'
+      SET closed_by_id = ?, closed_at = datetime('now', 'localtime'), final_balance = ?, status = 'CLOSED',
+          expected_cash = ?, counted_cash = ?, cash_difference = ?, closing_note = ?
       WHERE id = ?
-    `).run(userId, finalBalance, sessionId);
+    `).run(userId, counted, expected, counted, difference, note?.trim() || null, sessionId);
 
-    return db.prepare('SELECT * FROM cashier_sessions WHERE id = ?').get(sessionId) as CashRegisterSession;
+    return db.prepare('SELECT * FROM cashier_sessions WHERE id = ?').get(sessionId) as any;
   }
 
   static generateTablePreBill(tableId: string, cashierName: string = 'Operador Caixa'): { filePath: string; receiptContent: string } {
@@ -99,7 +177,7 @@ export class CashierRepository {
   ): { payments: Payment[]; change_given: number; receipt_file: string; receipt_text: string; service_tax_percent: number } {
     let session = this.getActiveSession();
     if (!session) {
-      session = this.openSession(cashierUserId || 'u_caixa', 0);
+      session = this.openSession(cashierUserId, 0);
     }
 
     const tableBill = OrderRepository.getTableBill(tableId);
@@ -107,51 +185,53 @@ export class CashierRepository {
       throw new Error('Nenhum pedido aberto encontrado para esta mesa.');
     }
 
-    let totalPaidInInput = 0;
-    for (const p of paymentsInput) {
-      totalPaidInInput += (p.amount_paid !== undefined ? p.amount_paid : p.amount);
+    // Tudo em centavos. Cartão e Pix não geram troco: o valor recebido é o próprio pagamento.
+    const inputs = paymentsInput.map(p => {
+      const amount = toCents(p.amount);
+      const paid = p.method === 'CASH' && p.amount_paid !== undefined ? toCents(p.amount_paid) : amount;
+      return { method: p.method, amount, paid };
+    });
+    if (inputs.some(p => p.amount <= 0 || p.paid < p.amount)) {
+      throw new HttpError(400, 'Valores de pagamento inválidos.');
     }
 
     const subtotal = tableBill.total_amount;
     const { percent, total: requiredTotal } = applyServiceTax(subtotal, includeTip);
+    const requiredCents = toCents(requiredTotal);
+    const totalPaidCents = inputs.reduce((acc, p) => acc + p.paid, 0);
 
-    if (totalPaidInInput < requiredTotal - 0.01) {
-      throw new Error(
-        `O valor pago (R$ ${totalPaidInInput.toFixed(2)}) é menor que o total da conta (R$ ${requiredTotal.toFixed(2)}).`
+    if (totalPaidCents < requiredCents) {
+      throw new HttpError(400,
+        `O valor pago (R$ ${toReais(totalPaidCents).toFixed(2)}) é menor que o total da conta (R$ ${requiredTotal.toFixed(2)}).`
       );
     }
 
     const createdPayments: Payment[] = [];
-    let totalChangeGiven = 0;
+    let totalChangeCents = 0;
 
     const processTransaction = db.transaction(() => {
-      let remainingBill = requiredTotal;
+      let remaining = requiredCents;
 
-      for (const p of paymentsInput) {
-        const paymentAmount = Math.min(p.amount, remainingBill);
-        const amountPaid = p.amount_paid !== undefined ? p.amount_paid : p.amount;
-        const change = p.method === 'CASH' && amountPaid > paymentAmount
-          ? Number((amountPaid - paymentAmount).toFixed(2))
-          : 0;
+      for (const p of inputs) {
+        const applied = Math.min(p.amount, remaining);
+        const change = p.method === 'CASH' ? Math.max(0, p.paid - applied) : 0;
+        totalChangeCents += change;
+        remaining -= applied;
 
-        totalChangeGiven += change;
-        remainingBill -= paymentAmount;
-
+        const paymentAmount = toReais(applied);
+        const amountPaid = toReais(p.paid);
+        const changeReais = toReais(change);
         const paymentId = randomUUID();
         const orderId = tableBill.orders[0]!.id;
 
         db.prepare(`
           INSERT INTO payments (id, table_id, order_id, cashier_session_id, payment_method, amount, amount_paid, change_given)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(paymentId, tableId, orderId, session!.id, p.method, paymentAmount, amountPaid, change);
+        `).run(paymentId, tableId, orderId, session!.id, p.method, paymentAmount, amountPaid, changeReais);
 
-        if (p.method === 'CASH') {
-          db.prepare('UPDATE cashier_sessions SET total_sales = total_sales + ?, total_cash = total_cash + ? WHERE id = ?').run(paymentAmount, paymentAmount, session!.id);
-        } else if (p.method === 'PIX') {
-          db.prepare('UPDATE cashier_sessions SET total_sales = total_sales + ?, total_pix = total_pix + ? WHERE id = ?').run(paymentAmount, paymentAmount, session!.id);
-        } else {
-          db.prepare('UPDATE cashier_sessions SET total_sales = total_sales + ?, total_card = total_card + ? WHERE id = ?').run(paymentAmount, paymentAmount, session!.id);
-        }
+        const column = p.method === 'CASH' ? 'total_cash' : p.method === 'PIX' ? 'total_pix' : 'total_card';
+        db.prepare(`UPDATE cashier_sessions SET total_sales = ROUND(total_sales + ?, 2), ${column} = ROUND(${column} + ?, 2) WHERE id = ?`)
+          .run(paymentAmount, paymentAmount, session!.id);
 
         createdPayments.push({
           id: paymentId,
@@ -161,7 +241,7 @@ export class CashierRepository {
           payment_method: p.method,
           amount: paymentAmount,
           amount_paid: amountPaid,
-          change_given: change,
+          change_given: changeReais,
           created_at: new Date().toISOString()
         });
       }
@@ -178,7 +258,7 @@ export class CashierRepository {
     const receiptResult = generateReceiptTxt(
       tableBill,
       paymentsInput,
-      totalChangeGiven,
+      toReais(totalChangeCents),
       session.opened_by_name,
       includeTip && percent > 0,
       percent
@@ -186,7 +266,7 @@ export class CashierRepository {
 
     return {
       payments: createdPayments,
-      change_given: totalChangeGiven,
+      change_given: toReais(totalChangeCents),
       receipt_file: receiptResult.filePath,
       receipt_text: receiptResult.receiptContent,
       service_tax_percent: percent
@@ -350,78 +430,77 @@ export class CashierRepository {
     };
   }
 
-  static closeDailyExpedient(dateStr?: string, userId: string = 'u_caixa') {
+  static closeDailyExpedient(dateStr: string | undefined, userId: string, countedCash?: number, note?: string) {
     const targetDate = dateStr || getLocalDateStr();
+
+    // Os rankings consideram só os pedidos deste expediente (sessão de caixa
+    // aberta). Antes somavam toda a história do restaurante.
+    const activeSession = this.getActiveSession();
+    const scope = activeSession
+      ? { sql: 'o.cashier_session_id = @scope', value: activeSession.id }
+      : { sql: "date(o.updated_at) = @scope", value: targetDate };
 
     const topFood = db.prepare(`
       SELECT mi.name, SUM(oi.quantity) as total_qty, SUM(oi.total_price) as total_revenue
       FROM order_items oi
       JOIN menu_items mi ON mi.id = oi.menu_item_id
       JOIN orders o ON o.id = oi.order_id
-      WHERE o.status = 'CLOSED'
+      WHERE o.status = 'CLOSED' AND oi.status != 'CANCELLED' AND ${scope.sql}
         AND mi.category NOT IN ('Bebidas', 'Drinks do Bar', 'Drinks', 'Bar', 'Bebida')
         AND mi.category NOT LIKE '%Drink%'
         AND mi.category NOT LIKE '%Bebida%'
       GROUP BY mi.id
       ORDER BY total_qty DESC
       LIMIT 1
-    `).get() as { name: string; total_qty: number; total_revenue: number } | undefined;
+    `).get({ scope: scope.value }) as { name: string; total_qty: number; total_revenue: number } | undefined;
 
     const topDrink = db.prepare(`
       SELECT mi.name, SUM(oi.quantity) as total_qty, SUM(oi.total_price) as total_revenue
       FROM order_items oi
       JOIN menu_items mi ON mi.id = oi.menu_item_id
       JOIN orders o ON o.id = oi.order_id
-      WHERE o.status = 'CLOSED'
+      WHERE o.status = 'CLOSED' AND oi.status != 'CANCELLED' AND ${scope.sql}
         AND (mi.category IN ('Bebidas', 'Drinks do Bar', 'Drinks', 'Bar', 'Bebida') OR mi.category LIKE '%Drink%' OR mi.category LIKE '%Bebida%')
       GROUP BY mi.id
       ORDER BY total_qty DESC
       LIMIT 1
-    `).get() as { name: string; total_qty: number; total_revenue: number } | undefined;
+    `).get({ scope: scope.value }) as { name: string; total_qty: number; total_revenue: number } | undefined;
 
     const topTable = db.prepare(`
       SELECT t.number as table_number, SUM(o.total_amount) as total_revenue
       FROM orders o
       JOIN tables t ON t.id = o.table_id
-      WHERE o.status = 'CLOSED'
+      WHERE o.status = 'CLOSED' AND ${scope.sql}
       GROUP BY t.id
       ORDER BY total_revenue DESC
       LIMIT 1
-    `).get() as { table_number: number; total_revenue: number } | undefined;
+    `).get({ scope: scope.value }) as { table_number: number; total_revenue: number } | undefined;
 
     const topPayment = db.prepare(`
-      SELECT payment_method, SUM(amount) as total_revenue
-      FROM payments
-      GROUP BY payment_method
+      SELECT p.payment_method, SUM(p.amount) as total_revenue
+      FROM payments p
+      JOIN orders o ON o.id = p.order_id
+      WHERE ${scope.sql}
+      GROUP BY p.payment_method
       ORDER BY total_revenue DESC
       LIMIT 1
-    `).get() as { payment_method: PaymentMethod; total_revenue: number } | undefined;
+    `).get({ scope: scope.value }) as { payment_method: PaymentMethod; total_revenue: number } | undefined;
 
-    const consumedInventory = db.prepare(`
-      SELECT inv.id, inv.name, inv.unit, SUM(oi.quantity * mii.quantity_required) as total_consumed
-      FROM order_items oi
-      JOIN orders o ON o.id = oi.order_id
-      JOIN menu_item_ingredients mii ON mii.menu_item_id = oi.menu_item_id
-      JOIN inventory inv ON inv.id = mii.inventory_id
-      WHERE o.status = 'CLOSED'
-      GROUP BY inv.id
-    `).all() as { id: string; name: string; unit: string; total_consumed: number }[];
-
-    const updateInv = db.prepare(`
-      UPDATE inventory
-      SET quantity = MAX(0, quantity - ?), updated_at = datetime('now', 'localtime')
-      WHERE id = ?
-    `);
-
-    for (const item of consumedInventory) {
-      updateInv.run(item.total_consumed, item.id);
-    }
+    // Consumo do expediente lido das movimentações de estoque. A baixa já
+    // aconteceu na venda: antes este trecho baixava o estoque DE NOVO, e de
+    // todos os pedidos fechados da história, a cada fechamento.
+    const since = activeSession?.opened_at ?? `${targetDate} 00:00:00`;
+    const consumedInventory = InventoryRepository.consumptionSince(since);
 
     const report = this.getDailyReport(targetDate);
 
-    const activeSession = this.getActiveSession();
+    let cashCheck: { expected_cash: number; counted_cash: number; cash_difference: number } | null = null;
     if (activeSession) {
-      this.closeSession(activeSession.id, userId, activeSession.total_sales);
+      if (countedCash === undefined || !Number.isFinite(countedCash) || countedCash < 0) {
+        throw new HttpError(400, 'Conte o dinheiro da gaveta e informe o valor para encerrar o caixa.');
+      }
+      const closed = this.closeSession(activeSession.id, userId, countedCash, note);
+      cashCheck = { expected_cash: closed.expected_cash, counted_cash: closed.counted_cash, cash_difference: closed.cash_difference };
     }
 
     const fullExpedientData = {
@@ -434,7 +513,8 @@ export class CashierRepository {
         top_payment: topPayment || { payment_method: 'N/A' as PaymentMethod, total_revenue: 0 }
       },
       inventory_consumed: consumedInventory,
-      service_tax_percent: getServiceTaxPercent()
+      service_tax_percent: getServiceTaxPercent(),
+      cash_check: cashCheck
     };
 
     const reportTxtResult = generateExpedientReportTxt(fullExpedientData);
@@ -446,6 +526,7 @@ export class CashierRepository {
       analytics: fullExpedientData.analytics,
       inventory_consumed: consumedInventory,
       service_tax_percent: fullExpedientData.service_tax_percent,
+      cash_check: cashCheck,
       report_file: reportTxtResult.filePath,
       report_text: reportTxtResult.reportContent
     };

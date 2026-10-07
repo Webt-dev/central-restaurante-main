@@ -2,18 +2,13 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { Table, MenuItem } from '../types';
 import { api } from '../services/api';
 import { socket } from '../services/socket';
-import { offlineDb } from '../services/offlineDb';
+import { submitOrder, cacheGet, cacheSet } from '../services/outbox';
 import { useServiceTaxPercent, calcServiceTax, formatPercent } from '../services/settings';
 import { useIsMobile } from '../hooks/useIsMobile';
 import {
   ShoppingBag, Plus, Minus, Send, CheckCircle2, AlertCircle, Search, RefreshCw,
   X, UserPlus, DoorOpen, LayoutGrid, Utensils, ArrowLeft, Trash2
 } from 'lucide-react';
-
-interface WaiterScreenProps {
-  isOnline: boolean;
-  onOrderCreated: () => void;
-}
 
 interface CartItem {
   menuItem: MenuItem;
@@ -23,18 +18,11 @@ interface CartItem {
 
 type MobileStep = 'TABLES' | 'MENU' | 'CART';
 
-const INITIAL_TABLES: Table[] = Array.from({ length: 10 }, (_, i) => ({
-  id: `t${i + 1}`,
-  number: i + 1,
-  name: `Mesa ${i + 1}`,
-  status: 'FREE'
-}));
-
-export const WaiterScreen: React.FC<WaiterScreenProps> = ({ isOnline, onOrderCreated }) => {
+export const WaiterScreen: React.FC = () => {
   const taxPercent = useServiceTaxPercent();
   const isMobile = useIsMobile();
 
-  const [tables, setTables] = useState<Table[]>(INITIAL_TABLES);
+  const [tables, setTables] = useState<Table[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>('Todos');
@@ -71,11 +59,13 @@ export const WaiterScreen: React.FC<WaiterScreenProps> = ({ isOnline, onOrderCre
   async function carregarMesas() {
     try {
       const tData = await api.getTables();
-      if (tData && tData.length > 0) {
-        setTables(tData);
-        setSelectedTable(prev => (prev ? tData.find(t => t.id === prev.id) || prev : prev));
-      }
+      setTables(tData);
+      setSelectedTable(prev => (prev ? tData.find(t => t.id === prev.id) || prev : prev));
+      void cacheSet('tables', tData);
     } catch (err) {
+      // Sem central: usa as mesas reais da última leitura (nunca mesas inventadas).
+      const cached = await cacheGet<Table[]>('tables');
+      if (cached) setTables(prev => (prev.length ? prev : cached));
       console.warn('Erro ao carregar mesas:', err);
     }
   }
@@ -91,10 +81,19 @@ export const WaiterScreen: React.FC<WaiterScreenProps> = ({ isOnline, onOrderCre
       setMenuItems(mData || []);
       setMenuState('ready');
       setMenuError('');
+      if (mData && mData.length) void cacheSet('menu', mData);
     } catch (err: any) {
       if (tentativa < 3) {
         await new Promise(r => setTimeout(r, 400 * tentativa));
         return carregarCardapio(tentativa + 1);
+      }
+      // Sem central: o garçom continua lançando com o cardápio salvo no aparelho.
+      const cached = await cacheGet<MenuItem[]>('menu');
+      if (cached && cached.length) {
+        setMenuItems(cached);
+        setMenuState('ready');
+        setMenuError('');
+        return;
       }
       setMenuState('error');
       setMenuError(err?.message || 'Não foi possível carregar o cardápio.');
@@ -213,34 +212,33 @@ export const WaiterScreen: React.FC<WaiterScreenProps> = ({ isOnline, onOrderCre
     setLoading(true);
     setFeedback(null);
 
-    const items = cart.map(c => ({
-      menu_item_id: c.menuItem.id,
-      quantity: c.quantity,
-      notes: c.notes || undefined
-    }));
-    const syncId = `off_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-
     try {
-      if (isOnline) {
-        await api.createOrder(selectedTable.id, items, syncId);
-        setFeedback({ type: 'success', message: `Pedido da ${selectedTable.name} enviado para a produção.` });
-      } else {
-        if (offlineDb) {
-          await offlineDb.offlineOrders.add({
-            offline_sync_id: syncId,
-            table_id: selectedTable.id,
-            table_number: selectedTable.number,
-            items,
-            notes: '',
-            created_at: new Date().toISOString(),
-            synced: 0
-          });
-        }
-        setFeedback({ type: 'success', message: 'Sem conexão: o pedido foi salvo e será enviado automaticamente.' });
+      const result = await submitOrder({
+        table_id: selectedTable.id,
+        table_number: selectedTable.number,
+        table_name: selectedTable.name,
+        items: cart.map(c => ({
+          menu_item_id: c.menuItem.id,
+          quantity: c.quantity,
+          notes: c.notes || undefined,
+          name: c.menuItem.name
+        }))
+      });
+
+      if (result.status === 'rejected') {
+        // A central recusou (ex.: estoque). O carrinho fica para o garçom ajustar.
+        setFeedback({ type: 'error', message: `Pedido não aceito: ${result.error}. Ele ficou em "Pendentes" para reenviar ou descartar.` });
+        return;
       }
 
+      setFeedback({
+        type: 'success',
+        message: result.status === 'sent'
+          ? `Pedido da ${selectedTable.name} enviado para a produção.`
+          : `Sem conexão com a central: o pedido da ${selectedTable.name} foi guardado neste aparelho e será enviado sozinho quando a conexão voltar.`
+      });
+
       setCart([]);
-      onOrderCreated();
       carregarMesas();
       if (isMobile) setStep('TABLES');
     } catch (err: any) {

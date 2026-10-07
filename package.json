@@ -3,16 +3,19 @@
   "version": "1.4.1",
   "description": "Sistema de gestao e pedidos offline-first para food service e varejo",
   "type": "module",
-  "main": "dist/server.js",
+  "main": "main.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "build:vite": "npm --prefix frontend run build",
     "build:all": "npm run build:vite && npm run build",
-    "test": "npm run build && node --test tests/",
-    "test:watch": "node --test --watch tests/",
-    "typecheck": "tsc --noEmit"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:watch": "node --import tsx --test --watch tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "restore": "tsx src/restoreBackup.ts",
+    "electron:dev": "npm run build:all && electron .",
+    "dist:win": "npm run build:all && electron-builder --win && npm rebuild better-sqlite3"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
@@ -30,11 +33,56 @@
     "@types/express": "^5.0.0",
     "@types/node": "^22.7.0",
     "@types/qrcode-terminal": "^0.12.2",
+    "electron": "^38.8.6",
+    "electron-builder": "^26.15.3",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   },
   "engines": {
     "node": ">=18.0.0"
   },
-  "license": "ISC"
+  "license": "UNLICENSED",
+  "private": true,
+  "productName": "Central Restaurante",
+  "author": "Central Restaurante",
+  "build": {
+    "appId": "br.com.centralrestaurante.app",
+    "productName": "Central Restaurante",
+    "copyright": "Todos os direitos reservados",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "dist/**/*",
+      "frontend/dist/**/*",
+      "build/icon.*",
+      "!**/*.map"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "npmRebuild": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Central Restaurante",
+      "deleteAppDataOnUninstall": false
+    }
+  }
 }

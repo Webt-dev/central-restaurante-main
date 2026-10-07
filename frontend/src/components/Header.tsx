@@ -1,14 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Utensils, ChefHat, GlassWater, Receipt, BarChart3, Settings,
-  Wifi, WifiOff, RefreshCw
+  Wifi, WifiOff, RefreshCw, LogOut, AlertTriangle
 } from 'lucide-react';
+import { useOutbox } from '../services/outbox';
+import { PendingOrdersModal } from './PendingOrdersModal';
+import { useSession, canAccess, homeFor, ROLE_LABELS } from '../services/session';
+import { useSettings } from '../services/settings';
+import { api } from '../services/api';
 
 interface HeaderProps {
   isOnline: boolean;
-  offlineCount: number;
-  onSyncOffline: () => void;
 }
 
 /**
@@ -29,13 +32,22 @@ const NAV_ITEMS = [
   { path: '/admin', label: 'Gestão', short: 'Gestão', Icon: Settings }
 ];
 
-export const Header: React.FC<HeaderProps> = ({ isOnline, offlineCount, onSyncOffline }) => {
+export const Header: React.FC<HeaderProps> = ({ isOnline }) => {
+  const outbox = useOutbox();
+  const [showPending, setShowPending] = useState(false);
+  const pendingCount = outbox.filter(o => o.status === 'pending').length;
+  const errorCount = outbox.filter(o => o.status === 'error').length;
   const navigate = useNavigate();
   const location = useLocation();
   const currentPath = location.pathname;
+  const session = useSession();
+  const settings = useSettings();
+  const role = session?.user.role ?? 'WAITER';
+  // Cada papel só vê as telas que pode abrir.
+  const navItems = NAV_ITEMS.filter(item => canAccess(role, item.path));
 
   function isActive(path: string) {
-    if (path === '/garcom') return currentPath.includes('/garcom') || currentPath === '/';
+    if (currentPath === '/') return path === homeFor(role);
     return currentPath.includes(path);
   }
 
@@ -43,7 +55,7 @@ export const Header: React.FC<HeaderProps> = ({ isOnline, offlineCount, onSyncOf
     <>
       <header className="app-header">
         <div className="app-header-inner">
-          <div className="brand" onClick={() => navigate('/garcom')}>
+          <div className="brand" onClick={() => navigate(homeFor(role))}>
             <img
               src="/icon.png"
               alt=""
@@ -52,21 +64,23 @@ export const Header: React.FC<HeaderProps> = ({ isOnline, offlineCount, onSyncOf
               }}
             />
             <div style={{ minWidth: 0 }}>
-              <div className="brand-name">Central de Restaurante</div>
+              <div className="brand-name">{settings.restaurant_name || 'Central de Restaurante'}</div>
               <div className="brand-sub">Pedidos, cozinha e caixa em um só lugar</div>
             </div>
           </div>
 
           <div className="toolbar">
-            {offlineCount > 0 && (
+            {outbox.length > 0 && (
               <button
-                onClick={onSyncOffline}
-                className="btn btn-outline btn-sm"
-                title="Enviar os pedidos que foram salvos sem internet"
+                onClick={() => setShowPending(true)}
+                className={`btn btn-sm ${errorCount > 0 ? 'btn-danger-soft' : 'btn-warning-soft'}`}
+                title="Pedidos guardados neste aparelho que ainda não chegaram à central"
               >
-                <RefreshCw size={14} className="spin" />
-                <span className="hide-mobile">Enviar </span>{offlineCount}
-                <span className="hide-mobile"> pendente{offlineCount === 1 ? '' : 's'}</span>
+                {errorCount > 0 ? <AlertTriangle size={14} /> : <RefreshCw size={14} className="spin" />}
+                {outbox.length}
+                <span className="hide-mobile">
+                  {errorCount > 0 ? ` recusado${errorCount === 1 ? '' : 's'}` : ` pendente${pendingCount === 1 ? '' : 's'}`}
+                </span>
               </button>
             )}
 
@@ -74,10 +88,21 @@ export const Header: React.FC<HeaderProps> = ({ isOnline, offlineCount, onSyncOf
               {isOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
               <span className="hide-mobile">{isOnline ? 'Conectado' : 'Sem conexão'}</span>
             </span>
+
+            {session && (
+              <button
+                onClick={() => api.logout()}
+                className="btn btn-outline btn-sm"
+                title={`${session.user.name} (${ROLE_LABELS[role]}) — sair deste aparelho`}
+              >
+                <LogOut size={14} />
+                <span className="hide-mobile">{session.user.name.split(' ')[0]} · Sair</span>
+              </button>
+            )}
           </div>
 
           <nav className="nav-tabs">
-            {NAV_ITEMS.map(({ path, label, Icon }) => (
+            {navItems.map(({ path, label, Icon }) => (
               <button
                 key={path}
                 onClick={() => navigate(path)}
@@ -91,8 +116,10 @@ export const Header: React.FC<HeaderProps> = ({ isOnline, offlineCount, onSyncOf
         </div>
       </header>
 
+      {showPending && <PendingOrdersModal onClose={() => setShowPending(false)} />}
+
       <nav className="mobile-nav">
-        {NAV_ITEMS.map(({ path, short, Icon }) => (
+        {navItems.map(({ path, short, Icon }) => (
           <button
             key={path}
             onClick={() => navigate(path)}

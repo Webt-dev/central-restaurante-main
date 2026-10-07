@@ -1,15 +1,16 @@
 import { useState, useEffect, Component, type ErrorInfo, type ReactNode } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Header } from './components/Header';
 import { WaiterScreen } from './components/WaiterScreen';
 import { KitchenScreen } from './components/KitchenScreen';
 import { CashierScreen } from './components/CashierScreen';
 import { ReportsStockScreen } from './components/ReportsStockScreen';
 import { AdminScreen } from './components/AdminScreen';
-import { offlineDb } from './services/offlineDb';
-import { socket, joinRoom } from './services/socket';
-import { api } from './services/api';
+import { LoginScreen } from './components/LoginScreen';
+import { ChangePasswordScreen } from './components/ChangePasswordScreen';
+import { socket } from './services/socket';
 import { loadSettings } from './services/settings';
+import { useSession, canAccess, homeFor, type UserRole } from './services/session';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -51,83 +52,62 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
+/** Só renderiza a tela se o papel do usuário puder abri-la; senão manda para a tela inicial dele. */
+function Guard({ role, path, children }: { role: UserRole; path: string; children: ReactNode }) {
+  return canAccess(role, path) ? <>{children}</> : <Navigate to={homeFor(role)} replace />;
+}
+
 export function AppContent() {
-  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
-  const [offlineCount, setOfflineCount] = useState<number>(0);
-  const location = useLocation();
+  const session = useSession();
+  if (!session) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg-main)' }}>
+        <LoginScreen />
+      </div>
+    );
+  }
+  if (session.mustChangePassword) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg-main)' }}>
+        <ChangePasswordScreen />
+      </div>
+    );
+  }
+  return <AuthenticatedApp role={session.user.role} />;
+}
+
+function AuthenticatedApp({ role }: { role: UserRole }) {
+  // "Conectado" = falando com a central pela rede local (não depende de internet).
+  const [isOnline, setIsOnline] = useState<boolean>(socket.connected);
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const onConnect = () => setIsOnline(true);
+    const onDisconnect = () => setIsOnline(false);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    if (socket) {
-      socket.on('connect', () => setIsOnline(true));
-      socket.on('disconnect', () => setIsOnline(false));
-    }
-
-    checkOfflineCount();
-    // Carrega as configurações (inclusive a taxa de serviço) uma única vez no início
-    loadSettings();
+    // Carrega as configurações (taxa de serviço, tema...) logo após o login
+    loadSettings(true);
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
     };
   }, []);
 
-  useEffect(() => {
-    const path = location.pathname;
-    if (path.includes('/cozinha') || path.includes('/bar')) joinRoom('kitchen');
-    if (path.includes('/garcom')) joinRoom('waiter');
-    if (path.includes('/caixa')) joinRoom('cashier');
-  }, [location.pathname]);
-
-  async function checkOfflineCount() {
-    if (!offlineDb) return;
-    try {
-      const pending = await offlineDb.offlineOrders.where('synced').equals(0).count();
-      setOfflineCount(pending);
-    } catch {
-      setOfflineCount(0);
-    }
-  }
-
-  async function handleSyncOffline() {
-    if (!offlineDb) return;
-    try {
-      const pendingOrders = await offlineDb.offlineOrders.where('synced').equals(0).toArray();
-      if (pendingOrders.length === 0) return;
-
-      for (const pOrder of pendingOrders) {
-        try {
-          await api.createOrder(pOrder.table_id, pOrder.items, pOrder.offline_sync_id);
-          await offlineDb.offlineOrders.update(pOrder.id!, { synced: 1 });
-        } catch (err) {
-          console.error('Erro ao sincronizar pedido offline:', err);
-        }
-      }
-      checkOfflineCount();
-    } catch (err) {
-      console.error('Erro na sincronização em lote:', err);
-    }
-  }
-
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-main)' }}>
-      <Header isOnline={isOnline} offlineCount={offlineCount} onSyncOffline={handleSyncOffline} />
+      <Header isOnline={isOnline} />
       <main>
         <Routes>
-          <Route path="/" element={<Navigate to="/garcom" replace />} />
-          <Route path="/garcom" element={<WaiterScreen isOnline={isOnline} onOrderCreated={checkOfflineCount} />} />
-          <Route path="/cozinha" element={<KitchenScreen type="FOOD" />} />
-          <Route path="/bar" element={<KitchenScreen type="BAR" />} />
-          <Route path="/caixa" element={<CashierScreen />} />
-          <Route path="/relatorios" element={<ReportsStockScreen />} />
-          <Route path="/admin" element={<AdminScreen />} />
-          <Route path="*" element={<Navigate to="/garcom" replace />} />
+          <Route path="/" element={<Navigate to={homeFor(role)} replace />} />
+          <Route path="/garcom" element={<Guard role={role} path="/garcom"><WaiterScreen /></Guard>} />
+          <Route path="/cozinha" element={<Guard role={role} path="/cozinha"><KitchenScreen type="FOOD" /></Guard>} />
+          <Route path="/bar" element={<Guard role={role} path="/bar"><KitchenScreen type="BAR" /></Guard>} />
+          <Route path="/caixa" element={<Guard role={role} path="/caixa"><CashierScreen /></Guard>} />
+          <Route path="/relatorios" element={<Guard role={role} path="/relatorios"><ReportsStockScreen /></Guard>} />
+          <Route path="/admin" element={<Guard role={role} path="/admin"><AdminScreen /></Guard>} />
+          <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
         </Routes>
       </main>
     </div>

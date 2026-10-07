@@ -114,6 +114,9 @@ FORMA(S) DE PAGAMENTO:
 ${paymentLines}------------------------------------------------
 TROCO:                                R$${changeGiven.toFixed(2).padStart(8, ' ')}
 ================================================
+           NAO E DOCUMENTO FISCAL
+  (o documento fiscal e a NFC-e, quando emitida)
+================================================
           Obrigado pela preferencia!
 ================================================
 `;

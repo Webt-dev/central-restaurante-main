@@ -7,9 +7,9 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get('/', InventoryController.listAll);
-router.get('/alerts', InventoryController.getLowStock);
+router.get('/', authorize(['CASHIER', 'KITCHEN']), InventoryController.listAll);
+router.get('/alerts', authorize(['CASHIER', 'KITCHEN']), InventoryController.getLowStock);
 router.post('/', authorize(['ADMIN']), validateBody(createInventorySchema), InventoryController.createItem);
-router.patch('/:id/adjust', authorize(['ADMIN', 'KITCHEN']), validateBody(adjustInventorySchema), InventoryController.adjustQuantity);
+router.patch('/:id/adjust', authorize(['KITCHEN']), validateBody(adjustInventorySchema), InventoryController.adjustQuantity);
 
 export default router;

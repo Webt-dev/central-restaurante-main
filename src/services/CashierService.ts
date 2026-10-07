@@ -12,8 +12,8 @@ export class CashierService {
     return CashierRepository.openSession(userId, initialBalance);
   }
 
-  static closeSession(sessionId: string, userId: string, finalBalance: number): CashRegisterSession {
-    return CashierRepository.closeSession(sessionId, userId, finalBalance);
+  static closeSession(sessionId: string, userId: string, countedCash: number, note?: string): CashRegisterSession {
+    return CashierRepository.closeSession(sessionId, userId, countedCash, note);
   }
 
   static processTablePayment(
@@ -65,7 +65,7 @@ export class CashierService {
     return CashierRepository.getDailyReport(dateStr);
   }
 
-  static closeDailyExpedient(dateStr?: string, userId?: string) {
-    return CashierRepository.closeDailyExpedient(dateStr, userId);
+  static closeDailyExpedient(dateStr: string | undefined, userId: string, countedCash?: number, note?: string) {
+    return CashierRepository.closeDailyExpedient(dateStr, userId, countedCash, note);
   }
 }

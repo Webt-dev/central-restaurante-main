@@ -401,14 +401,17 @@ Todos os comandos devem ser executados na raiz do projeto (`C:\Users\matsu\Webst
    Compila frontend e backend e abre a janela do Electron para testes locais.
 
 ----------------------------------------------------------------------------------------------------
-9. USUÁRIOS E CREDENCIAIS PADRÃO DO SISTEMA (SEED)
+9. USUÁRIOS E PERMISSÕES
 ----------------------------------------------------------------------------------------------------
-| Perfil (Role)       | Usuário | Senha       | Acesso Permitido                                    |
-|---------------------|---------|-------------|-----------------------------------------------------|
-| Administrador Geral | admin   | 123456      | Todas as telas (/admin, /caixa, /relatorios, etc.)  |
-| Caixa Principal     | caixa   | caixa123    | /caixa, /relatorios, /cozinha, /bar, /garcom       |
-| Garçom              | garcom  | garcom123   | /garcom                                             |
-| Cozinha / Bar       | cozinha | cozinha123  | /cozinha, /bar                                      |
+Não há usuários de fábrica. O primeiro ADMIN é criado em POST /api/auth/setup (tela
+"Configuração inicial"); os demais em Gestão -> Usuários (/api/auth/users).
+
+| Perfil (Role) | Acesso Permitido                     |
+|---------------|--------------------------------------|
+| ADMIN         | Todas as telas e rotas               |
+| CASHIER       | /caixa, /garcom, /relatorios         |
+| WAITER        | /garcom                              |
+| KITCHEN       | /cozinha, /bar                       |
 
 ----------------------------------------------------------------------------------------------------
 10. GUIA RÁPIDO PARA A PRÓXIMA IA OU DESENVOLVEDOR (BOAS PRÁTICAS)

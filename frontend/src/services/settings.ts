@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from './api';
 import { socket } from './socket';
 import type { RestaurantSettings } from '../types';
+import { applyTheme } from './theme';
 
 /**
  * Fonte única da verdade para a taxa de serviço (gorjeta) no frontend.
@@ -17,7 +18,8 @@ const DEFAULT_SETTINGS: RestaurantSettings = {
   phone: '',
   address: '',
   service_tax_percent: 10,
-  payment_methods_allowed: ['CASH', 'CREDIT_CARD', 'DEBIT_CARD', 'PIX']
+  payment_methods_allowed: ['CASH', 'CREDIT_CARD', 'DEBIT_CARD', 'PIX'],
+  theme: 'system'
 };
 
 let cache: RestaurantSettings = DEFAULT_SETTINGS;
@@ -26,6 +28,7 @@ const listeners = new Set<(s: RestaurantSettings) => void>();
 
 function notify(next: RestaurantSettings) {
   cache = next;
+  applyTheme(next.theme);
   listeners.forEach(fn => fn(next));
 }
 

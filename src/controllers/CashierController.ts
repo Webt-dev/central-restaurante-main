@@ -2,6 +2,8 @@ import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middlewares/authMiddleware.js';
 import { CashierService } from '../services/CashierService.js';
 import { z } from 'zod';
+import { CashierRepository } from '../repositories/CashierRepository.js';
+import { auditRequest } from '../services/AuditService.js';
 
 export const openSessionSchema = z.object({
   initial_balance: z.number().min(0, 'Saldo inicial não pode ser negativo')
@@ -9,7 +11,20 @@ export const openSessionSchema = z.object({
 
 export const closeSessionSchema = z.object({
   session_id: z.string().min(1),
-  final_balance: z.number().min(0, 'Saldo final não pode ser negativo')
+  counted_cash: z.number().finite().min(0, 'O valor contado não pode ser negativo'),
+  note: z.string().trim().max(300).optional()
+});
+
+export const cashMovementSchema = z.object({
+  type: z.enum(['SANGRIA', 'SUPRIMENTO']),
+  amount: z.number().finite().positive('Informe um valor maior que zero').max(1_000_000),
+  reason: z.string().trim().min(3, 'Informe o motivo').max(200)
+});
+
+export const closeExpedientSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  counted_cash: z.number().finite().min(0).optional(),
+  note: z.string().trim().max(300).optional()
 });
 
 export const processPaymentSchema = z.object({
@@ -28,7 +43,8 @@ export class CashierController {
   static async getActiveSession(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const session = CashierService.getActiveSession();
-      res.json(session);
+      // Junto com a sessão vai a conferência: dinheiro esperado na gaveta, sangrias e suprimentos.
+      res.json(session ? { ...session, cash: CashierRepository.getCashSummary(session) } : null);
     } catch (err) {
       next(err);
     }
@@ -48,8 +64,9 @@ export class CashierController {
   static async closeSession(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const userId = req.user!.userId;
-      const { session_id, final_balance } = req.body;
-      const session = CashierService.closeSession(session_id, userId, final_balance);
+      const { session_id, counted_cash, note } = req.body;
+      const session = CashierService.closeSession(session_id, userId, counted_cash, note);
+      auditRequest(req, { action: 'cashier.close', entity: 'cashier_session', entityId: session_id, after: session, reason: note });
       res.json(session);
     } catch (err) {
       next(err);
@@ -105,10 +122,21 @@ export class CashierController {
 
   static async closeDailyExpedient(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const dateStr = req.body.date as string | undefined;
-      const userId = req.user?.userId || 'u_caixa';
-      const result = CashierService.closeDailyExpedient(dateStr, userId);
+      const { date, counted_cash, note } = req.body as { date?: string; counted_cash?: number; note?: string };
+      const result = CashierService.closeDailyExpedient(date, req.user!.userId, counted_cash, note);
+      auditRequest(req, { action: 'cashier.close_expedient', entity: 'cashier_session', after: result.cash_check, reason: note });
       res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  static async addCashMovement(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+      const { type, amount, reason } = req.body;
+      const movement = CashierRepository.addCashMovement(type, amount, reason, req.user!.userId);
+      auditRequest(req, { action: `cashier.${type.toLowerCase()}`, entity: 'cash_movement', entityId: movement.id, after: movement, reason });
+      res.status(201).json(movement);
     } catch (err) {
       next(err);
     }

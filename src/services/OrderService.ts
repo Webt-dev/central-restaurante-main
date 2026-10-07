@@ -1,6 +1,6 @@
-import { OrderRepository } from '../repositories/OrderRepository.js';
+import { OrderRepository, OrderActor } from '../repositories/OrderRepository.js';
 import { TableRepository } from '../repositories/TableRepository.js';
-import { Order, TableBillSummary } from '../models/types.js';
+import { Order, OrderItem, TableBillSummary } from '../models/types.js';
 import { notifyOrderCreated, notifyTableStatusChanged } from '../sockets/socketManager.js';
 
 export class OrderService {
@@ -56,32 +56,18 @@ export class OrderService {
     return { syncedCount, errors };
   }
 
-  static deleteItemFromOrder(itemId: string): { success: boolean } {
-    const res = OrderRepository.deleteOrderItem(itemId);
-    if (!res.success) {
-      throw new Error('Item não encontrado para exclusão.');
-    }
-
-    if (res.table_id) {
-      const table = TableRepository.findById(res.table_id);
-      if (table) notifyTableStatusChanged(table);
-    }
-
-    return { success: true };
+  static cancelItem(itemId: string, actor: OrderActor, reason?: string): { table_id: string; before: OrderItem } {
+    const res = OrderRepository.cancelOrderItem(itemId, actor, reason);
+    const table = TableRepository.findById(res.table_id);
+    if (table) notifyTableStatusChanged(table);
+    return res;
   }
 
-  static updateItemQuantity(itemId: string, quantity: number): { success: boolean } {
-    const res = OrderRepository.updateOrderItemQuantity(itemId, quantity);
-    if (!res.success) {
-      throw new Error('Item não encontrado para atualização de quantidade.');
-    }
-
-    if (res.table_id) {
-      const table = TableRepository.findById(res.table_id);
-      if (table) notifyTableStatusChanged(table);
-    }
-
-    return { success: true };
+  static updateItemQuantity(itemId: string, quantity: number, actor: OrderActor, reason?: string): { table_id: string; before: OrderItem } {
+    const res = OrderRepository.updateOrderItemQuantity(itemId, quantity, actor, reason);
+    const table = TableRepository.findById(res.table_id);
+    if (table) notifyTableStatusChanged(table);
+    return res;
   }
 
   static getTableBill(tableId: string): TableBillSummary {

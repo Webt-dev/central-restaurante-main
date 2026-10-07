@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { KitchenController, updateItemStatusSchema, updateBatchStatusSchema } from '../controllers/KitchenController.js';
 import { validateBody } from '../middlewares/validationMiddleware.js';
-import { authenticate } from '../middlewares/authMiddleware.js';
+import { authenticate, authorize } from '../middlewares/authMiddleware.js';
 
 const router = Router();
 
-router.use(authenticate);
+router.use(authenticate, authorize(['KITCHEN']));
 
 router.get('/queue', KitchenController.getKitchenQueue);
 router.get('/bar-queue', KitchenController.getBarQueue);

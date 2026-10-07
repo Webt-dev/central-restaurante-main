@@ -7,16 +7,7 @@ export class TableRepository {
   }
 
   static findById(id: string): Table | null {
-    let table = db.prepare('SELECT * FROM tables WHERE id = ?').get(id) as Table | undefined;
-
-    // Fallback gracioso para IDs t1..t10
-    if (!table && id.startsWith('t')) {
-      const num = parseInt(id.replace('t', ''), 10);
-      if (!isNaN(num)) {
-        table = this.findByNumber(num) || undefined;
-      }
-    }
-
+    const table = db.prepare('SELECT * FROM tables WHERE id = ?').get(id) as Table | undefined;
     return table || null;
   }
 

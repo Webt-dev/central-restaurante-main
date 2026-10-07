@@ -1,7 +1,7 @@
 import { db } from '../config/database.js';
 import { randomUUID } from 'node:crypto';
-import { hashPassword, verifyPassword } from '../utils/crypto.js';
 import { Table, MenuItem, InventoryItem } from '../models/types.js';
+import { InventoryRepository, MovementContext } from './InventoryRepository.js';
 
 export interface RestaurantSettings {
   restaurant_name: string;
@@ -10,7 +10,12 @@ export interface RestaurantSettings {
   address: string;
   service_tax_percent: number;
   payment_methods_allowed: string[];
+  /** Tema da interface, escolhido pelo ADMIN e aplicado em todos os aparelhos. */
+  theme: ThemePreference;
 }
+
+export type ThemePreference = 'light' | 'dark' | 'system';
+const VALID_THEMES: ThemePreference[] = ['light', 'dark', 'system'];
 
 const VALID_PAYMENT_METHODS = ['CASH', 'CREDIT_CARD', 'DEBIT_CARD', 'PIX'];
 
@@ -90,8 +95,17 @@ export class AdminRepository {
     return db.prepare('SELECT * FROM menu_items WHERE id = ?').get(id) as MenuItem;
   }
 
+  /**
+   * Item já vendido é arquivado (some do cardápio, mas os pedidos antigos
+   * continuam apontando para ele). Item nunca vendido é apagado de fato.
+   */
   static deleteMenuItem(id: string): void {
-    db.prepare('DELETE FROM menu_items WHERE id = ?').run(id);
+    const sold = db.prepare('SELECT 1 FROM order_items WHERE menu_item_id = ? LIMIT 1').get(id);
+    if (sold) {
+      db.prepare("UPDATE menu_items SET active = 0, archived_at = datetime('now', 'localtime') WHERE id = ?").run(id);
+    } else {
+      db.prepare('DELETE FROM menu_items WHERE id = ?').run(id);
+    }
   }
 
   // ==========================================
@@ -105,38 +119,28 @@ export class AdminRepository {
   // ==========================================
   // 4. ESTOQUE
   // ==========================================
-  static addInventoryItem(data: { name: string; unit: string; quantity: number; min_quantity: number; unit_price: number }): InventoryItem {
+  // Toda alteração de saldo passa pelo InventoryRepository, que registra a
+  // movimentação (quem, quando, quanto e por quê).
+  static addInventoryItem(data: { name: string; unit: string; quantity: number; min_quantity: number; unit_price: number }, ctx: MovementContext = {}): InventoryItem {
     const id = `inv_${randomUUID().substring(0, 6)}`;
-    db.prepare(`
-      INSERT INTO inventory (id, name, unit, quantity, min_quantity, unit_price)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, data.name, data.unit, data.quantity, data.min_quantity, data.unit_price);
-
-    return db.prepare('SELECT * FROM inventory WHERE id = ?').get(id) as InventoryItem;
+    return InventoryRepository.create({ id, ...data }, ctx);
   }
 
-  static updateInventoryItem(id: string, data: { name: string; unit: string; quantity: number; min_quantity: number; unit_price: number }): InventoryItem {
-    db.prepare(`
-      UPDATE inventory
-      SET name = ?, unit = ?, quantity = ?, min_quantity = ?, unit_price = ?, updated_at = datetime('now', 'localtime')
-      WHERE id = ?
-    `).run(data.name, data.unit, data.quantity, data.min_quantity, data.unit_price, id);
-
-    return db.prepare('SELECT * FROM inventory WHERE id = ?').get(id) as InventoryItem;
+  static updateInventoryItem(id: string, data: { name: string; unit: string; quantity: number; min_quantity: number; unit_price: number }, ctx: MovementContext = {}): InventoryItem {
+    return InventoryRepository.update(id, data, ctx)!;
   }
 
-  static restockItem(id: string, addedQuantity: number): InventoryItem {
-    db.prepare(`
-      UPDATE inventory
-      SET quantity = quantity + ?, updated_at = datetime('now', 'localtime')
-      WHERE id = ?
-    `).run(addedQuantity, id);
-
-    return db.prepare('SELECT * FROM inventory WHERE id = ?').get(id) as InventoryItem;
+  static restockItem(id: string, addedQuantity: number, ctx: MovementContext = {}): InventoryItem {
+    InventoryRepository.updateQuantity(id, addedQuantity, 'RESTOCK', ctx);
+    return InventoryRepository.findById(id)!;
   }
 
+  /** Insumo é arquivado (o histórico de movimentações continua) e sai das fichas técnicas. */
   static deleteInventoryItem(id: string): void {
-    db.prepare('DELETE FROM inventory WHERE id = ?').run(id);
+    db.transaction(() => {
+      db.prepare('DELETE FROM menu_item_ingredients WHERE inventory_id = ?').run(id);
+      db.prepare("UPDATE inventory SET archived_at = datetime('now', 'localtime') WHERE id = ?").run(id);
+    })();
   }
 
   // ==========================================
@@ -153,7 +157,8 @@ export class AdminRepository {
       phone: settingsMap['phone'] ?? '',
       address: settingsMap['address'] ?? '',
       service_tax_percent: Number(settingsMap['service_tax_percent'] ?? 10),
-      payment_methods_allowed: parsePaymentMethods(settingsMap['payment_methods_allowed'])
+      payment_methods_allowed: parsePaymentMethods(settingsMap['payment_methods_allowed']),
+      theme: VALID_THEMES.includes(settingsMap['theme'] as ThemePreference) ? (settingsMap['theme'] as ThemePreference) : 'system'
     };
   }
 
@@ -169,6 +174,7 @@ export class AdminRepository {
     if (data.phone !== undefined) upsert.run('phone', data.phone);
     if (data.address !== undefined) upsert.run('address', data.address);
     if (data.service_tax_percent !== undefined) upsert.run('service_tax_percent', String(data.service_tax_percent));
+    if (data.theme !== undefined && VALID_THEMES.includes(data.theme)) upsert.run('theme', data.theme);
 
     if (data.payment_methods_allowed !== undefined) {
       // Normaliza: só métodos válidos, sem duplicados, sempre com dinheiro.
@@ -182,36 +188,6 @@ export class AdminRepository {
     }
 
     return this.getSettings();
-  }
-
-  // ==========================================
-  // 6. CREDENCIAIS DO ADMINISTRADOR
-  // ==========================================
-  static changeAdminCredentials(currentUserId: string, data: { currentPassword: string; newUsername: string; newPassword: string }): void {
-    const adminUser = db.prepare('SELECT * FROM users WHERE id = ?').get(currentUserId) as any;
-    if (!adminUser) {
-      throw new Error('Usuário administrador não encontrado.');
-    }
-
-    if (!verifyPassword(data.currentPassword, adminUser.password_hash)) {
-      throw new Error('A senha atual do Administrador está incorreta!');
-    }
-
-    if (!data.newUsername || data.newUsername.trim().length < 3) {
-      throw new Error('O novo nome de usuário deve conter no mínimo 3 caracteres.');
-    }
-
-    if (!data.newPassword || data.newPassword.trim().length < 4) {
-      throw new Error('A nova senha deve conter no mínimo 4 caracteres.');
-    }
-
-    const existing = db.prepare('SELECT * FROM users WHERE username = ? AND id != ?').get(data.newUsername.trim(), currentUserId) as any;
-    if (existing) {
-      throw new Error(`O nome de usuário "${data.newUsername}" já está em uso por outro usuário.`);
-    }
-
-    const newHash = hashPassword(data.newPassword.trim());
-    db.prepare('UPDATE users SET username = ?, password_hash = ? WHERE id = ?').run(data.newUsername.trim(), newHash, currentUserId);
   }
 }
 

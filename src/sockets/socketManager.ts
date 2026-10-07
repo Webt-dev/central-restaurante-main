@@ -1,5 +1,8 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'node:http';
+import { resolveSession } from '../middlewares/authMiddleware.js';
+import type { UserRole } from '../models/types.js';
+import { env } from '../config/env.js';
 
 export interface ConnectedDevice {
   id: string;
@@ -7,8 +10,21 @@ export interface ConnectedDevice {
   userAgent: string;
   deviceType: string;
   room: string;
+  userName: string;
+  role: UserRole;
   connectedAt: string;
 }
+
+/**
+ * Salas definidas pelo papel do usuário logado — o aparelho não escolhe mais
+ * em qual sala entra. ADMIN recebe tudo.
+ */
+const ROOMS_BY_ROLE: Record<UserRole, string[]> = {
+  ADMIN: ['admin', 'kitchen', 'waiter', 'cashier'],
+  CASHIER: ['cashier', 'waiter'],
+  WAITER: ['waiter'],
+  KITCHEN: ['kitchen']
+};
 
 const connectedDevicesMap = new Map<string, ConnectedDevice>();
 let io: SocketIOServer | null = null;
@@ -28,10 +44,11 @@ function parseDeviceType(userAgent: string): string {
   return 'Dispositivo Web';
 }
 
+// A lista de aparelhos (com IPs) só vai para quem administra.
 function broadcastDevicesUpdate(): void {
   if (io) {
     const list = getConnectedDevices();
-    io.emit('devices:updated', list);
+    io.to('admin').to('cashier').emit('devices:updated', list);
   }
 }
 
@@ -41,50 +58,54 @@ export function getConnectedDevices(): ConnectedDevice[] {
 
 export function initSocketIO(server: HTTPServer): SocketIOServer {
   io = new SocketIOServer(server, {
-    cors: {
-      origin: '*',
-      methods: ['GET', 'POST', 'PUT', 'DELETE']
-    }
+    // Em produção o frontend é servido pelo próprio servidor (mesma origem).
+    // CORS só é liberado no desenvolvimento, para o Vite na porta 5173.
+    cors: env.NODE_ENV === 'development' ? { origin: true } : undefined
+  });
+
+  // Sem token válido, a conexão é recusada.
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token as string | undefined;
+    const session = resolveSession(token);
+    if (!session || session.mcp) return next(new Error('unauthorized'));
+    socket.data.user = session;
+    next();
   });
 
   io.on('connection', (socket: Socket) => {
-    const rawIp = (socket.handshake.headers['x-forwarded-for'] as string) || socket.handshake.address;
-    const cleanIp = rawIp.replace('::ffff:', '').replace('::1', '127.0.0.1');
+    const user = socket.data.user as { userId: string; name: string; role: UserRole };
+    const cleanIp = socket.handshake.address.replace('::ffff:', '').replace('::1', '127.0.0.1');
     const userAgent = socket.handshake.headers['user-agent'] || 'Desconhecido';
     const deviceType = parseDeviceType(userAgent);
+    const rooms = ROOMS_BY_ROLE[user.role] ?? [];
 
-    const deviceObj: ConnectedDevice = {
+    rooms.forEach(room => socket.join(room));
+    socket.join(`user:${user.userId}`);
+
+    connectedDevicesMap.set(socket.id, {
       id: socket.id,
       ip: cleanIp,
       userAgent,
       deviceType,
-      room: 'Geral',
+      room: rooms.join(', '),
+      userName: user.name,
+      role: user.role,
       connectedAt: new Date().toISOString()
-    };
-
-    connectedDevicesMap.set(socket.id, deviceObj);
-    console.log(`🔌 Novo dispositivo conectado [${deviceType}] IP: ${cleanIp} (ID: ${socket.id})`);
-    broadcastDevicesUpdate();
-
-    socket.on('join_room', (room: string) => {
-      socket.join(room);
-      const existing = connectedDevicesMap.get(socket.id);
-      if (existing) {
-        existing.room = room;
-        connectedDevicesMap.set(socket.id, existing);
-      }
-      console.log(`📌 Dispositivo ${socket.id} (${deviceType}) entrou na sala: ${room}`);
-      broadcastDevicesUpdate();
     });
+    broadcastDevicesUpdate();
 
     socket.on('disconnect', () => {
       connectedDevicesMap.delete(socket.id);
-      console.log(`🔌 Dispositivo desconectado: ${socket.id}`);
       broadcastDevicesUpdate();
     });
   });
 
   return io;
+}
+
+/** Derruba as conexões em tempo real de um usuário (desativado, senha trocada). */
+export function disconnectUser(userId: string): void {
+  io?.in(`user:${userId}`).disconnectSockets(true);
 }
 
 export function getIO(): SocketIOServer {

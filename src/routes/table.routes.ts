@@ -10,6 +10,6 @@ router.use(authenticate);
 router.get('/', TableController.listAll);
 router.get('/:id', TableController.getById);
 router.post('/', authorize(['ADMIN']), validateBody(createTableSchema), TableController.createTable);
-router.patch('/:id/status', authorize(['ADMIN', 'WAITER', 'CASHIER']), validateBody(updateTableStatusSchema), TableController.updateStatus);
+router.patch('/:id/status', authorize(['WAITER', 'CASHIER']), validateBody(updateTableStatusSchema), TableController.updateStatus);
 
 export default router;

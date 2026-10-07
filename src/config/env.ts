@@ -35,9 +35,12 @@ function resolveDatabasePath(): string {
   return path.join(process.cwd(), 'database.sqlite');
 }
 
+const DB_PATH = resolveDatabasePath();
+
 export const env = {
   PORT: process.env.PORT || '3000',
-  JWT_SECRET: process.env.JWT_SECRET || 'central_restaurante_super_secret_key_2026_crypt',
-  DB_PATH: resolveDatabasePath(),
+  DB_PATH,
+  // Pasta de dados da instalação (banco, segredo, backups).
+  DATA_DIR: path.dirname(DB_PATH),
   NODE_ENV: process.env.NODE_ENV || 'development'
 };

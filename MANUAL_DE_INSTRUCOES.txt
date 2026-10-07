@@ -94,10 +94,11 @@ Se a câmera do celular não ler o QR Code automaticamente:
   3. O painel financeiro do sistema é ZERADO automaticamente para iniciar zerado no dia seguinte.
 
 ⚙️ E) TELA DE GESTÃO & ADMINISTRAÇÃO (Área Protegida por Senha)
-- Acesso Restrito: Ao clicar nesta aba, o sistema pedirá usuário e senha para segurança contra acessos não autorizados de terceiros.
-- CREDENCIAIS PADRÃO INICIAIS:
-  * Usuário: admin
-  * Senha:   123456
+- Acesso Restrito: só o usuário com função Administrador vê esta aba.
+- PRIMEIRO ACESSO: na primeira vez que o sistema é aberto, ele pede para criar o
+  usuário administrador (senha com no mínimo 8 caracteres). Não existe senha de fábrica.
+- Usuários: na sub-aba "Usuários" você cadastra cada garçom, caixa e cozinheiro com o
+  próprio login, redefine senhas e desativa quem sair da equipe.
 - O que você pode customizar no Painel Admin:
   1. Mesas: Adicionar novas mesas, mudar nome das mesas, excluir mesas.
   2. Cardápio: Cadastrar novos pratos, alterar preços em tempo real, mudar nomes e descrições, desativar produtos temporariamente.
@@ -129,7 +130,7 @@ R: 1. Verifique se o Wi-Fi do celular é exatamente o mesmo Wi-Fi do computador.
    3. Abra a câmera e escaneie o QR Code atualizado na aba de Relatórios.
 
 Q: Posso alterar o usuário e a senha do Admin para a minha própria senha?
-R: Sim! Vá na aba "Gestão & Admin" -> digite a senha atual (123456) -> vá até o final da sub-aba "Configurações" e digite seu novo Usuário e nova Senha. Clique em salvar.
+R: Sim! Vá na aba "Gestão" -> sub-aba "Configurações" -> "Meu usuário e senha", informe a senha atual e a nova. Clique em salvar.
 
 Q: Quando eu fechar o aplicativo no PC e abrir de novo, a minha nova senha vai sumir?
 R: Não! A sua nova senha fica salva permanentemente no banco de dados do computador e continuará a mesma sempre que você abrir o sistema.

@@ -1,23 +1,84 @@
 import { Router } from 'express';
-import { authenticate } from '../middlewares/authMiddleware.js';
+import { z } from 'zod';
+import { authenticate, authorize, AuthenticatedRequest } from '../middlewares/authMiddleware.js';
+import { validateBody } from '../middlewares/validationMiddleware.js';
 import { AdminRepository } from '../repositories/AdminRepository.js';
 import { emitEvent } from '../sockets/socketManager.js';
+import { auditRequest } from '../services/AuditService.js';
+import { db } from '../config/database.js';
+import { createBackup, listBackups, BACKUP_DIR } from '../services/BackupService.js';
 
 const router = Router();
 
-// Todas as rotas administrativas exigem autenticação
 router.use(authenticate);
+
+// Configurações são lidas por todas as telas (taxa de serviço, formas de
+// pagamento, tema). Todo o resto deste router é exclusivo do ADMIN.
+router.get('/settings', (req, res, next) => {
+  try {
+    res.json(AdminRepository.getSettings());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.use(authorize(['ADMIN']));
+
+function param(value: unknown): string {
+  return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '');
+}
+
+function findRow(table: 'tables' | 'menu_items' | 'inventory', id: string): unknown {
+  return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+}
+
+const money = z.coerce.number().finite().min(0, 'O valor não pode ser negativo').max(100_000);
+const qty = z.coerce.number().finite().min(0, 'A quantidade não pode ser negativa').max(10_000_000);
+
+const tableSchema = z.object({
+  number: z.coerce.number().int().min(1, 'Informe um número de mesa válido.').max(9999),
+  name: z.string().trim().max(60).optional().default('')
+});
+
+const menuSchema = z.object({
+  name: z.string().trim().min(1, 'Nome é obrigatório').max(120),
+  description: z.string().trim().max(500).optional().default(''),
+  price: money.refine(v => v > 0, 'O preço deve ser maior que zero'),
+  category: z.string().trim().min(1, 'Categoria é obrigatória').max(60),
+  active: z.boolean().optional()
+});
+
+const inventorySchema = z.object({
+  name: z.string().trim().min(1, 'Nome do insumo é obrigatório').max(120),
+  unit: z.string().trim().min(1, 'Unidade é obrigatória').max(20),
+  quantity: qty.default(0),
+  min_quantity: qty.default(0),
+  unit_price: money.default(0),
+  reason: z.string().trim().max(200).optional()
+});
+
+const restockSchema = z.object({
+  quantity: qty.refine(v => v > 0, 'Informe a quantidade a repor.'),
+  reason: z.string().trim().max(200).optional()
+});
+
+const settingsSchema = z.object({
+  restaurant_name: z.string().trim().max(120).optional(),
+  cnpj: z.string().trim().max(20).optional(),
+  phone: z.string().trim().max(30).optional(),
+  address: z.string().trim().max(200).optional(),
+  service_tax_percent: z.coerce.number().finite().min(0).max(30, 'A taxa de serviço deve ser um número entre 0 e 30.').optional(),
+  payment_methods_allowed: z.array(z.string()).optional(),
+  theme: z.enum(['light', 'dark', 'system']).optional()
+});
 
 // ==========================================
 // 1. MESAS
 // ==========================================
-router.post('/tables', (req, res, next) => {
+router.post('/tables', validateBody(tableSchema), (req: AuthenticatedRequest, res, next) => {
   try {
-    const { number, name } = req.body;
-    if (!number || isNaN(Number(number))) {
-      return res.status(400).json({ error: 'Informe um número de mesa válido.' });
-    }
-    const table = AdminRepository.addTable(Number(number), name);
+    const table = AdminRepository.addTable(req.body.number, req.body.name);
+    auditRequest(req, { action: 'table.create', entity: 'table', entityId: table.id, after: table });
     emitEvent('tables:updated');
     res.status(201).json(table);
   } catch (err) {
@@ -25,13 +86,12 @@ router.post('/tables', (req, res, next) => {
   }
 });
 
-router.put('/tables/:id', (req, res, next) => {
+router.put('/tables/:id', validateBody(tableSchema), (req: AuthenticatedRequest, res, next) => {
   try {
-    const { number, name } = req.body;
-    if (!number || isNaN(Number(number))) {
-      return res.status(400).json({ error: 'Informe um número de mesa válido.' });
-    }
-    const table = AdminRepository.updateTable(req.params.id, Number(number), name);
+    const id = param(req.params.id);
+    const before = findRow('tables', id);
+    const table = AdminRepository.updateTable(id, req.body.number, req.body.name);
+    auditRequest(req, { action: 'table.update', entity: 'table', entityId: id, before, after: table });
     emitEvent('tables:updated');
     res.json(table);
   } catch (err) {
@@ -39,9 +99,12 @@ router.put('/tables/:id', (req, res, next) => {
   }
 });
 
-router.delete('/tables/:id', (req, res, next) => {
+router.delete('/tables/:id', (req: AuthenticatedRequest, res, next) => {
   try {
-    AdminRepository.deleteTable(req.params.id);
+    const id = param(req.params.id);
+    const before = findRow('tables', id);
+    AdminRepository.deleteTable(id);
+    auditRequest(req, { action: 'table.delete', entity: 'table', entityId: id, before });
     emitEvent('tables:updated');
     res.json({ success: true, message: 'Mesa excluída com sucesso.' });
   } catch (err) {
@@ -52,18 +115,10 @@ router.delete('/tables/:id', (req, res, next) => {
 // ==========================================
 // 2. CARDÁPIO
 // ==========================================
-router.post('/menu', (req, res, next) => {
+router.post('/menu', validateBody(menuSchema), (req: AuthenticatedRequest, res, next) => {
   try {
-    const { name, description, price, category } = req.body;
-    if (!name || price === undefined || !category) {
-      return res.status(400).json({ error: 'Nome, preço e categoria são obrigatórios.' });
-    }
-    const item = AdminRepository.addMenuItem({
-      name,
-      description: description || '',
-      price: Number(price),
-      category
-    });
+    const item = AdminRepository.addMenuItem(req.body);
+    auditRequest(req, { action: 'menu.create', entity: 'menu_item', entityId: item.id, after: item });
     emitEvent('menu:updated');
     res.status(201).json(item);
   } catch (err) {
@@ -71,16 +126,13 @@ router.post('/menu', (req, res, next) => {
   }
 });
 
-router.put('/menu/:id', (req, res, next) => {
+router.put('/menu/:id', validateBody(menuSchema), (req: AuthenticatedRequest, res, next) => {
   try {
-    const { name, description, price, category, active } = req.body;
-    const item = AdminRepository.updateMenuItem(req.params.id, {
-      name,
-      description: description || '',
-      price: Number(price),
-      category,
-      active
-    });
+    const id = param(req.params.id);
+    const before = findRow('menu_items', id);
+    if (!before) return res.status(404).json({ error: 'Item do cardápio não encontrado.' });
+    const item = AdminRepository.updateMenuItem(id, req.body);
+    auditRequest(req, { action: 'menu.update', entity: 'menu_item', entityId: id, before, after: item });
     emitEvent('menu:updated');
     res.json(item);
   } catch (err) {
@@ -88,9 +140,13 @@ router.put('/menu/:id', (req, res, next) => {
   }
 });
 
-router.delete('/menu/:id', (req, res, next) => {
+router.delete('/menu/:id', (req: AuthenticatedRequest, res, next) => {
   try {
-    AdminRepository.deleteMenuItem(req.params.id);
+    const id = param(req.params.id);
+    const before = findRow('menu_items', id);
+    if (!before) return res.status(404).json({ error: 'Item do cardápio não encontrado.' });
+    AdminRepository.deleteMenuItem(id);
+    auditRequest(req, { action: 'menu.delete', entity: 'menu_item', entityId: id, before });
     emitEvent('menu:updated');
     res.json({ success: true, message: 'Item removido do cardápio.' });
   } catch (err) {
@@ -101,19 +157,11 @@ router.delete('/menu/:id', (req, res, next) => {
 // ==========================================
 // 3. ESTOQUE
 // ==========================================
-router.post('/inventory', (req, res, next) => {
+router.post('/inventory', validateBody(inventorySchema), (req: AuthenticatedRequest, res, next) => {
   try {
-    const { name, unit, quantity, min_quantity, unit_price } = req.body;
-    if (!name || !unit) {
-      return res.status(400).json({ error: 'Nome do insumo e unidade de medida são obrigatórios.' });
-    }
-    const item = AdminRepository.addInventoryItem({
-      name,
-      unit,
-      quantity: Number(quantity || 0),
-      min_quantity: Number(min_quantity || 0),
-      unit_price: Number(unit_price || 0)
-    });
+    const { reason, ...data } = req.body;
+    const item = AdminRepository.addInventoryItem(data, { userId: req.user!.userId, note: reason });
+    auditRequest(req, { action: 'inventory.create', entity: 'inventory', entityId: item.id, after: item, reason });
     emitEvent('inventory:updated');
     res.status(201).json(item);
   } catch (err) {
@@ -121,16 +169,14 @@ router.post('/inventory', (req, res, next) => {
   }
 });
 
-router.put('/inventory/:id', (req, res, next) => {
+router.put('/inventory/:id', validateBody(inventorySchema), (req: AuthenticatedRequest, res, next) => {
   try {
-    const { name, unit, quantity, min_quantity, unit_price } = req.body;
-    const item = AdminRepository.updateInventoryItem(req.params.id, {
-      name,
-      unit,
-      quantity: Number(quantity),
-      min_quantity: Number(min_quantity),
-      unit_price: Number(unit_price)
-    });
+    const id = param(req.params.id);
+    const before = findRow('inventory', id);
+    if (!before) return res.status(404).json({ error: 'Insumo não encontrado.' });
+    const { reason, ...data } = req.body;
+    const item = AdminRepository.updateInventoryItem(id, data, { userId: req.user!.userId, note: reason });
+    auditRequest(req, { action: 'inventory.update', entity: 'inventory', entityId: id, before, after: item, reason });
     emitEvent('inventory:updated');
     res.json(item);
   } catch (err) {
@@ -138,13 +184,13 @@ router.put('/inventory/:id', (req, res, next) => {
   }
 });
 
-router.post('/inventory/:id/restock', (req, res, next) => {
+router.post('/inventory/:id/restock', validateBody(restockSchema), (req: AuthenticatedRequest, res, next) => {
   try {
-    const { quantity } = req.body;
-    if (!quantity || isNaN(Number(quantity))) {
-      return res.status(400).json({ error: 'Informe a quantidade a repor.' });
-    }
-    const item = AdminRepository.restockItem(req.params.id, Number(quantity));
+    const id = param(req.params.id);
+    const before = findRow('inventory', id);
+    if (!before) return res.status(404).json({ error: 'Insumo não encontrado.' });
+    const item = AdminRepository.restockItem(id, req.body.quantity, { userId: req.user!.userId, note: req.body.reason });
+    auditRequest(req, { action: 'inventory.restock', entity: 'inventory', entityId: id, before, after: item, reason: req.body.reason });
     emitEvent('inventory:updated');
     res.json(item);
   } catch (err) {
@@ -152,9 +198,13 @@ router.post('/inventory/:id/restock', (req, res, next) => {
   }
 });
 
-router.delete('/inventory/:id', (req, res, next) => {
+router.delete('/inventory/:id', (req: AuthenticatedRequest, res, next) => {
   try {
-    AdminRepository.deleteInventoryItem(req.params.id);
+    const id = param(req.params.id);
+    const before = findRow('inventory', id);
+    if (!before) return res.status(404).json({ error: 'Insumo não encontrado.' });
+    AdminRepository.deleteInventoryItem(id);
+    auditRequest(req, { action: 'inventory.delete', entity: 'inventory', entityId: id, before });
     emitEvent('inventory:updated');
     res.json({ success: true, message: 'Insumo removido do estoque.' });
   } catch (err) {
@@ -163,54 +213,37 @@ router.delete('/inventory/:id', (req, res, next) => {
 });
 
 // ==========================================
-// 4. CONFIGURAÇÕES DO RESTAURANTE
+// 4. BACKUPS
 // ==========================================
-router.get('/settings', (req, res, next) => {
+router.get('/backups', (req, res) => {
+  res.json({ folder: BACKUP_DIR, backups: listBackups() });
+});
+
+router.post('/backups', async (req: AuthenticatedRequest, res, next) => {
   try {
-    res.json(AdminRepository.getSettings());
+    const file = await createBackup(db, 'manual');
+    auditRequest(req, { action: 'backup.create', entity: 'backup', after: { file } });
+    res.status(201).json({ file, backups: listBackups() });
   } catch (err) {
     next(err);
   }
 });
 
-router.put('/settings', (req, res, next) => {
+// ==========================================
+// 5. CONFIGURAÇÕES DO RESTAURANTE
+// ==========================================
+router.put('/settings', validateBody(settingsSchema), (req: AuthenticatedRequest, res, next) => {
   try {
     const payload = { ...req.body };
-
-    // Validação da taxa de serviço (gorjeta): aceita 0 (desativada) até 30%.
     if (payload.service_tax_percent !== undefined) {
-      const pct = Number(String(payload.service_tax_percent).replace(',', '.'));
-      if (!isFinite(pct) || pct < 0 || pct > 30) {
-        return res.status(400).json({ error: 'A taxa de serviço deve ser um número entre 0 e 30.' });
-      }
-      payload.service_tax_percent = Number(pct.toFixed(2));
+      payload.service_tax_percent = Number(payload.service_tax_percent.toFixed(2));
     }
 
-    // Dinheiro é obrigatório por lei e não pode ser desativado.
-    if (Array.isArray(payload.payment_methods_allowed) && !payload.payment_methods_allowed.includes('CASH')) {
-      payload.payment_methods_allowed = ['CASH', ...payload.payment_methods_allowed];
-    }
-
+    const before = AdminRepository.getSettings();
     const updated = AdminRepository.updateSettings(payload);
+    auditRequest(req, { action: 'settings.update', entity: 'settings', before, after: updated });
     emitEvent('settings:updated', updated);
     res.json(updated);
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ==========================================
-// 5. CREDENCIAIS DO ADMINISTRADOR
-// ==========================================
-router.post('/change-credentials', (req: any, res, next) => {
-  try {
-    const userId = req.user?.userId || req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'Usuário não autenticado.' });
-    }
-    const { currentPassword, newUsername, newPassword } = req.body;
-    AdminRepository.changeAdminCredentials(userId, { currentPassword, newUsername, newPassword });
-    res.json({ success: true, message: 'Usuário e senha alterados com sucesso.' });
   } catch (err) {
     next(err);
   }

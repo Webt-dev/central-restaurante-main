@@ -121,4 +121,16 @@ export interface RestaurantSettings {
   address: string;
   service_tax_percent: number;
   payment_methods_allowed: string[];
+  theme: ThemePreference;
+}
+
+export type ThemePreference = 'light' | 'dark' | 'system';
+
+export interface ManagedUser {
+  id: string;
+  name: string;
+  username: string;
+  role: 'ADMIN' | 'CASHIER' | 'WAITER' | 'KITCHEN';
+  active: number;
+  created_at: string;
 }

@@ -3,22 +3,26 @@ import {
   CashierController,
   openSessionSchema,
   closeSessionSchema,
-  processPaymentSchema
+  processPaymentSchema,
+  cashMovementSchema,
+  closeExpedientSchema
 } from '../controllers/CashierController.js';
 import { validateBody } from '../middlewares/validationMiddleware.js';
 import { authenticate, authorize } from '../middlewares/authMiddleware.js';
 
 const router = Router();
 
-router.use(authenticate);
+// Todo o caixa é restrito a CASHIER (e ADMIN).
+router.use(authenticate, authorize(['CASHIER']));
 
 router.get('/session', CashierController.getActiveSession);
-router.post('/session/open', authorize(['CASHIER', 'ADMIN']), validateBody(openSessionSchema), CashierController.openSession);
-router.post('/session/close', authorize(['CASHIER', 'ADMIN']), validateBody(closeSessionSchema), CashierController.closeSession);
+router.post('/session/open', validateBody(openSessionSchema), CashierController.openSession);
+router.post('/session/close', validateBody(closeSessionSchema), CashierController.closeSession);
 router.post('/payment', validateBody(processPaymentSchema), CashierController.processPayment);
 router.get('/receipt/order/:orderId', CashierController.reprintReceipt);
 router.get('/table-bill/:tableId/print', CashierController.printTableBill);
 router.get('/report', CashierController.getDailyReport);
-router.post('/close-expedient', authorize(['CASHIER', 'ADMIN']), CashierController.closeDailyExpedient);
+router.post('/cash-movements', validateBody(cashMovementSchema), CashierController.addCashMovement);
+router.post('/close-expedient', validateBody(closeExpedientSchema), CashierController.closeDailyExpedient);
 
 export default router;

@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { InventoryService } from '../services/InventoryService.js';
+import { AuthenticatedRequest } from '../middlewares/authMiddleware.js';
+import { auditRequest } from '../services/AuditService.js';
 import { z } from 'zod';
 
 export const createInventorySchema = z.object({
@@ -42,11 +44,12 @@ export class InventoryController {
     }
   }
 
-  static async adjustQuantity(req: Request, res: Response, next: NextFunction) {
+  static async adjustQuantity(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const id = req.params.id as string;
       const { deltaQuantity } = req.body;
-      const updated = InventoryService.adjustQuantity(id, deltaQuantity);
+      const updated = InventoryService.adjustQuantity(id, deltaQuantity, req.user!.userId);
+      auditRequest(req, { action: 'inventory.adjust', entity: 'inventory', entityId: id, after: { deltaQuantity, quantity: updated.quantity } });
       res.json(updated);
     } catch (err) {
       next(err);

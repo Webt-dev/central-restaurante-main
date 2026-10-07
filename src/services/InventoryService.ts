@@ -30,12 +30,12 @@ export class InventoryService {
     return item;
   }
 
-  static adjustQuantity(id: string, deltaQuantity: number): InventoryItem {
+  static adjustQuantity(id: string, deltaQuantity: number, userId?: string): InventoryItem {
     const item = InventoryRepository.findById(id);
     if (!item) {
       throw new Error('Item de estoque não encontrado.');
     }
-    InventoryRepository.updateQuantity(id, deltaQuantity);
+    InventoryRepository.updateQuantity(id, deltaQuantity, 'ADJUST', { userId });
     return InventoryRepository.findById(id)!;
   }
 }

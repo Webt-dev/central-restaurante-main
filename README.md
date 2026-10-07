@@ -152,21 +152,48 @@ npm run dev
 ```
 *O frontend estará rodando em: `http://localhost:5173` (e `http://<SEU_IP_LOCAL>:5173`)*
 
+### 3. Comandos úteis
+
+| Comando | O que faz |
+| :--- | :--- |
+| `npm test` | Testes automáticos (login, permissões, estoque, caixa, migrações, auditoria) |
+| `npm run typecheck` | Checagem de tipos do backend |
+| `npm run electron:dev` | Compila tudo e abre o app Electron |
+| `npm run dist:win` | Gera o instalador do Windows em `release/` |
+| `npm run restore` | Lista os backups; `npm run restore -- <arquivo>` restaura (com o sistema fechado) |
+
+### 4. Onde ficam os dados
+
+No app instalado, tudo fica em `%APPDATA%\Central Restaurante\`:
+
+- `database.sqlite` — banco de dados
+- `backups\` — backup diário (7 diários + 4 semanais) e cópia antes de cada atualização do banco
+- `logs\` — um arquivo por dia, 14 dias guardados (senhas e tokens são mascarados)
+- `.jwt-secret` — chave de login desta instalação (não copiar entre clientes)
+
+Variável opcional `BACKUP_MIRROR_DIR`: grava uma segunda cópia de cada backup em outra pasta/disco.
+
 ---
 
-## 🔑 Credenciais Padrão (Seed Inicial)
+## 🔑 Primeiro acesso e usuários
 
-O sistema popula automaticamente o banco de dados inicial na primeira execução:
+Não existem usuários nem senhas padrão. Na primeira vez que o sistema é aberto,
+a tela **Configuração inicial** pede para criar o administrador (senha com no
+mínimo 8 caracteres). Depois, em **Gestão → Usuários**, o administrador cadastra
+cada pessoa da equipe com a própria função:
 
-| Função | Usuário | Senha |
-| :--- | :--- | :--- |
-| **Administrador** | `admin` | `admin123` |
-| **Caixa** | `caixa` | `caixa123` |
-| **Garçom** | `garcom` | `garcom123` |
-| **Cozinha / Bar** | `cozinha` | `cozinha123` |
+| Função | Telas que acessa |
+| :--- | :--- |
+| **Administrador** | Todas |
+| **Caixa** | Caixa, Garçom, Relatórios |
+| **Garçom** | Garçom |
+| **Cozinha / Bar** | Cozinha, Bar |
+
+Instalações antigas que ainda usam uma senha de fábrica são obrigadas a trocá-la
+no próximo login.
 
 ---
 
 ## 📄 Licença
 
-Este projeto está sob a licença [ISC](LICENSE).
+Software proprietário. Todos os direitos reservados. As licenças das bibliotecas de terceiros (MIT, ISC, BSD, Apache-2.0) devem acompanhar o instalador.

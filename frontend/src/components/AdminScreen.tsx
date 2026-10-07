@@ -1,16 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import type { Table, MenuItem, InventoryItem, RestaurantSettings } from '../types';
+import type { Table, MenuItem, InventoryItem, RestaurantSettings, ThemePreference } from '../types';
+import { UsersPanel } from './UsersPanel';
+import { SupervisorPinSettings } from './SupervisorPinSettings';
 import { api } from '../services/api';
 import { socket } from '../services/socket';
 import { loadSettings, normalizePercent, formatPercent } from '../services/settings';
 import { formatQuantity, cleanInventoryName, getStockHealth, UNIT_OPTIONS, unitLabel } from '../utils/units';
 import {
   Utensils, Package, Settings, Plus, Trash2, Pencil, Save, X, CheckCircle2,
-  AlertTriangle, Grid, CreditCard, Building2, RefreshCw, Search, Lock, LogIn,
-  KeyRound, ShieldAlert, Percent
+  AlertTriangle, Grid, CreditCard, Building2, RefreshCw, Search,
+  KeyRound, Percent, Users, Palette, Sun, Moon, Monitor
 } from 'lucide-react';
 
-type AdminTab = 'tables' | 'menu' | 'inventory' | 'settings';
+type AdminTab = 'tables' | 'menu' | 'inventory' | 'users' | 'settings';
+
+const THEME_OPTIONS: { key: ThemePreference; label: string; hint: string; Icon: typeof Sun }[] = [
+  { key: 'light', label: 'Claro', hint: 'Fundo claro em todos os aparelhos', Icon: Sun },
+  { key: 'dark', label: 'Escuro', hint: 'Fundo escuro em todos os aparelhos', Icon: Moon },
+  { key: 'system', label: 'Usar cores do sistema', hint: 'Cada aparelho segue o tema do próprio celular ou computador', Icon: Monitor }
+];
 
 const PAYMENT_OPTIONS = [
   { key: 'PIX', label: 'PIX', hint: 'QR Code e chave Pix' },
@@ -19,12 +27,6 @@ const PAYMENT_OPTIONS = [
 ];
 
 export const AdminScreen: React.FC = () => {
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
-  const [loginUser, setLoginUser] = useState<string>('admin');
-  const [loginPass, setLoginPass] = useState<string>('');
-  const [loginError, setLoginError] = useState<string>('');
-  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
-
   const [credForm, setCredForm] = useState({ currentPassword: '', newUsername: '', newPassword: '', confirmPassword: '' });
 
   const [activeTab, setActiveTab] = useState<AdminTab>('tables');
@@ -39,7 +41,8 @@ export const AdminScreen: React.FC = () => {
     phone: '',
     address: '',
     service_tax_percent: 10,
-    payment_methods_allowed: ['CASH', 'CREDIT_CARD', 'DEBIT_CARD', 'PIX']
+    payment_methods_allowed: ['CASH', 'CREDIT_CARD', 'DEBIT_CARD', 'PIX'],
+    theme: 'system'
   });
   const [taxInput, setTaxInput] = useState<string>('10');
   const [savingSettings, setSavingSettings] = useState<boolean>(false);
@@ -105,45 +108,36 @@ export const AdminScreen: React.FC = () => {
     setTimeout(() => setMessage(null), 4000);
   }
 
-  async function handleAdminLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setLoginError('');
-    setIsLoggingIn(true);
+  async function handleThemeChange(theme: ThemePreference) {
+    if (theme === settings.theme) return;
     try {
-      const user = await api.login(loginUser.trim(), loginPass);
-      if (user.role !== 'ADMIN') {
-        setLoginError('Este usuário não tem permissão de administrador.');
-        return;
-      }
-      setIsAdminAuthenticated(true);
-      setLoginPass('');
-      loadAllAdminData();
+      const saved = await api.updateSettings({ theme });
+      setSettings(prev => ({ ...prev, theme: saved.theme }));
+      loadSettings(true);
+      showMessage('success', 'Tema aplicado em todos os aparelhos.');
     } catch (err: any) {
-      setLoginError(err.message || 'Usuário ou senha incorretos.');
-    } finally {
-      setIsLoggingIn(false);
+      showMessage('error', err.message || 'Não foi possível alterar o tema.');
     }
   }
 
   async function handleChangeCredentials(e: React.FormEvent) {
     e.preventDefault();
     if (!credForm.currentPassword) return showMessage('error', 'Digite a senha atual.');
-    if (!credForm.newUsername || credForm.newUsername.trim().length < 3) {
+    if (credForm.newUsername && credForm.newUsername.trim().length < 3) {
       return showMessage('error', 'O novo usuário precisa ter no mínimo 3 caracteres.');
     }
-    if (!credForm.newPassword || credForm.newPassword.length < 4) {
-      return showMessage('error', 'A nova senha precisa ter no mínimo 4 caracteres.');
+    if (!credForm.newPassword || credForm.newPassword.length < 8) {
+      return showMessage('error', 'A nova senha precisa ter no mínimo 8 caracteres.');
     }
     if (credForm.newPassword !== credForm.confirmPassword) {
       return showMessage('error', 'A nova senha e a confirmação não são iguais.');
     }
     try {
-      await api.changeAdminCredentials({
+      await api.changeOwnCredentials({
         currentPassword: credForm.currentPassword,
-        newUsername: credForm.newUsername.trim(),
+        newUsername: credForm.newUsername.trim() || undefined,
         newPassword: credForm.newPassword
       });
-      setLoginUser(credForm.newUsername.trim());
       showMessage('success', 'Usuário e senha alterados. Guarde os novos dados de acesso.');
       setCredForm({ currentPassword: '', newUsername: '', newPassword: '', confirmPassword: '' });
     } catch (err: any) {
@@ -377,48 +371,6 @@ export const AdminScreen: React.FC = () => {
   const inventarioFiltrado = inventory
     .filter(i => cleanInventoryName(i.name).toLowerCase().includes(invSearch.toLowerCase()));
 
-  // ------------------------------------------------------ Tela de bloqueio
-  if (!isAdminAuthenticated) {
-    return (
-      <div className="page" style={{ maxWidth: '430px', paddingTop: '40px' }}>
-        <div className="card card-pad animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Lock size={20} color="var(--text-secondary)" />
-            <div>
-              <h1 className="page-title">Área de gestão</h1>
-              <div className="page-subtitle">Entre com o usuário e a senha do administrador.</div>
-            </div>
-          </div>
-
-          {loginError && (
-            <div className="alert alert-error">
-              <ShieldAlert size={17} /><span>{loginError}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleAdminLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div className="field">
-              <label className="label">Usuário</label>
-              <input type="text" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} placeholder="admin" className="input" required />
-            </div>
-            <div className="field">
-              <label className="label">Senha</label>
-              <input type="password" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} placeholder="Digite a senha" className="input" required />
-            </div>
-            <button type="submit" disabled={isLoggingIn} className="btn btn-primary btn-block">
-              <LogIn size={17} /> {isLoggingIn ? 'Entrando...' : 'Entrar'}
-            </button>
-          </form>
-
-          <p className="hint">
-            Acesso inicial de fábrica: usuário <strong>admin</strong> e senha <strong>123456</strong>.
-            Recomendamos trocar em Configurações assim que possível.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="page">
       <div className="page-head">
@@ -428,7 +380,6 @@ export const AdminScreen: React.FC = () => {
         </div>
         <div className="toolbar">
           <button onClick={loadAllAdminData} className="btn btn-outline btn-sm"><RefreshCw size={15} /> Atualizar</button>
-          <button onClick={() => setIsAdminAuthenticated(false)} className="btn btn-outline btn-sm"><Lock size={15} /> Sair</button>
         </div>
       </div>
 
@@ -448,6 +399,9 @@ export const AdminScreen: React.FC = () => {
         </button>
         <button onClick={() => setActiveTab('inventory')} className={`tab ${activeTab === 'inventory' ? 'is-active' : ''}`}>
           <Package size={16} /> Estoque <span className="tab-count">{inventory.length}</span>
+        </button>
+        <button onClick={() => setActiveTab('users')} className={`tab ${activeTab === 'users' ? 'is-active' : ''}`}>
+          <Users size={16} /> Usuários
         </button>
         <button onClick={() => setActiveTab('settings')} className={`tab ${activeTab === 'settings' ? 'is-active' : ''}`}>
           <Settings size={16} /> Configurações
@@ -838,10 +792,40 @@ export const AdminScreen: React.FC = () => {
         </div>
       )}
 
+      {/* ------------------------------------------------------- USUÁRIOS */}
+      {activeTab === 'users' && <UsersPanel onMessage={showMessage} />}
+
       {/* -------------------------------------------------- CONFIGURAÇÕES */}
       {/* Centralizado: coluna estreita no meio da tela, mais confortável de ler */}
       {activeTab === 'settings' && (
         <div style={{ width: '100%', maxWidth: '720px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <section className="card card-pad" aria-labelledby="theme-title">
+            <h2 id="theme-title" className="section-title"><Palette size={18} color="var(--text-secondary)" /> Aparência</h2>
+            <p className="hint" style={{ margin: '4px 0 14px' }}>Vale para todos os aparelhos conectados. Só o administrador pode mudar.</p>
+            <div className="choice-list" role="radiogroup" aria-label="Tema da interface">
+              {THEME_OPTIONS.map(({ key, label, hint, Icon }) => {
+                const selected = settings.theme === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => handleThemeChange(key)}
+                    className={`choice ${selected ? 'is-selected' : ''}`}
+                  >
+                    <Icon size={20} />
+                    <span className="choice-text">
+                      <span className="choice-label">{label}</span>
+                      <span className="hint">{hint}</span>
+                    </span>
+                    {selected && <CheckCircle2 size={18} className="choice-check" />}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
           <form onSubmit={handleSaveSettings} className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div className="section">
               <h2 className="section-title"><Building2 size={18} color="var(--text-secondary)" /> Dados do estabelecimento</h2>
@@ -939,8 +923,8 @@ export const AdminScreen: React.FC = () => {
 
           <form onSubmit={handleChangeCredentials} className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div>
-              <h2 className="section-title"><KeyRound size={18} color="var(--text-secondary)" /> Usuário e senha do administrador</h2>
-              <p className="hint" style={{ marginTop: '4px' }}>Troque os dados de acesso padrão para proteger a área de gestão.</p>
+              <h2 className="section-title"><KeyRound size={18} color="var(--text-secondary)" /> Meu usuário e senha</h2>
+              <p className="hint" style={{ marginTop: '4px' }}>Deixe o novo usuário em branco para manter o atual. Mínimo de 8 caracteres na senha.</p>
             </div>
 
             <div className="form-grid">
@@ -950,7 +934,7 @@ export const AdminScreen: React.FC = () => {
               </div>
               <div className="field">
                 <label className="label">Novo usuário</label>
-                <input type="text" placeholder="gerencia" value={credForm.newUsername} onChange={(e) => setCredForm({ ...credForm, newUsername: e.target.value })} className="input" required />
+                <input type="text" placeholder="Opcional" value={credForm.newUsername} onChange={(e) => setCredForm({ ...credForm, newUsername: e.target.value })} className="input" />
               </div>
               <div className="field">
                 <label className="label">Nova senha</label>
@@ -964,6 +948,8 @@ export const AdminScreen: React.FC = () => {
 
             <button type="submit" className="btn btn-outline btn-block"><Save size={16} /> Salvar novo acesso</button>
           </form>
+
+          <SupervisorPinSettings onMessage={showMessage} />
         </div>
       )}
     </div>

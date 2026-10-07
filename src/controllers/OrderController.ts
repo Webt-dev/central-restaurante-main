@@ -2,6 +2,9 @@ import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middlewares/authMiddleware.js';
 import { OrderService } from '../services/OrderService.js';
 import { z } from 'zod';
+import { auditRequest } from '../services/AuditService.js';
+import { AuthService } from '../services/AuthService.js';
+import type { OrderActor } from '../repositories/OrderRepository.js';
 
 export const createOrderSchema = z.object({
   table_id: z.string().min(1, 'ID da mesa é obrigatório'),
@@ -17,8 +20,21 @@ export const createOrderSchema = z.object({
 });
 
 export const updateQuantitySchema = z.object({
-  quantity: z.number().int().min(0)
+  quantity: z.number().int().min(0),
+  reason: z.string().trim().max(200).optional(),
+  supervisor_pin: z.string().regex(/^\d{4,6}$/).optional()
 });
+
+/** Se veio PIN de supervisor, confere e devolve o ator com a autorização. */
+async function resolveActor(req: AuthenticatedRequest): Promise<OrderActor> {
+  const actor: OrderActor = { userId: req.user!.userId, role: req.user!.role };
+  const pin = typeof req.body?.supervisor_pin === 'string' ? req.body.supervisor_pin : undefined;
+  if (pin) {
+    const supervisor = await AuthService.verifySupervisorPin(pin, req.ip ?? '');
+    actor.supervisorId = supervisor.id;
+  }
+  return actor;
+}
 
 export const syncBatchOrdersSchema = z.object({
   batch: z.array(
@@ -62,11 +78,22 @@ export class OrderController {
     }
   }
 
+  /** "Excluir" item = cancelamento lógico, com motivo e autor na auditoria. */
   static async deleteItem(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const itemId = req.params.itemId as string;
-      const result = OrderService.deleteItemFromOrder(itemId);
-      res.json(result);
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 200) : undefined;
+      const actor = await resolveActor(req);
+      const { before } = OrderService.cancelItem(itemId, actor, reason);
+      auditRequest(req, {
+        action: 'order_item.cancel',
+        entity: 'order_item',
+        entityId: itemId,
+        before,
+        after: actor.supervisorId ? { authorized_by: actor.supervisorId } : undefined,
+        reason
+      });
+      res.json({ success: true });
     } catch (err) {
       next(err);
     }
@@ -75,9 +102,18 @@ export class OrderController {
   static async updateItemQuantity(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const itemId = req.params.itemId as string;
-      const { quantity } = req.body;
-      const result = OrderService.updateItemQuantity(itemId, quantity);
-      res.json(result);
+      const { quantity, reason } = req.body;
+      const actor = await resolveActor(req);
+      const { before } = OrderService.updateItemQuantity(itemId, quantity, actor, reason);
+      auditRequest(req, {
+        action: 'order_item.quantity',
+        entity: 'order_item',
+        entityId: itemId,
+        before: { quantity: before.quantity },
+        after: { quantity, ...(actor.supervisorId ? { authorized_by: actor.supervisorId } : {}) },
+        reason
+      });
+      res.json({ success: true });
     } catch (err) {
       next(err);
     }

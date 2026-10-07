@@ -11,3 +11,13 @@ relatorios_expediente/
 .env
 database.sqlite*
 *.sqlite
+
+# Dados locais da instalação
+*.db
+backups/
+.jwt-secret
+Restaurante_Documentos/
+
+# Configuração local do Claude Code
+.claude/launch.json
+release/

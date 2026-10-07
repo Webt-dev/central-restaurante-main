@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import type { Table } from '../types';
-import { api } from '../services/api';
+import { api, ApiError } from '../services/api';
+import { CashDrawerPanel } from './CashDrawerPanel';
+import { SupervisorPinModal } from './SupervisorPinModal';
 import { formatDateTimeBR } from '../utils/dateUtils';
 import { printReceiptContent } from '../utils/printUtils';
 import { useSettings, useServiceTaxPercent, calcServiceTax, formatPercent } from '../services/settings';
@@ -63,6 +65,8 @@ export const CashierScreen: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [receiptText, setReceiptText] = useState<string | null>(null);
+  // Alteração que esbarrou em item já preparado: aguarda o PIN do supervisor.
+  const [pendingChange, setPendingChange] = useState<{ itemId: string; quantity: number } | null>(null);
 
   useEffect(() => {
     loadTables();
@@ -114,27 +118,38 @@ export const CashierScreen: React.FC = () => {
     await refreshCurrentBill(t.id, false);
   }
 
-  async function handleDeleteItem(itemId: string) {
+  /**
+   * Cancelar/reduzir item. Se a cozinha já começou o item, o servidor pede o
+   * PIN do supervisor (SUPERVISOR_REQUIRED) e abrimos a autorização.
+   */
+  async function applyItemChange(itemId: string, quantity: number, options: { reason?: string; supervisor_pin?: string } = {}) {
     if (!selectedTable) return;
-    if (!window.confirm('Remover este item da comanda?')) return;
+    if (quantity <= 0) await api.deleteOrderItem(itemId, options);
+    else await api.updateOrderItemQuantity(itemId, quantity, options);
+    await refreshCurrentBill(selectedTable.id);
+    loadTables();
+  }
+
+  async function handleItemChange(itemId: string, quantity: number) {
     try {
-      await api.deleteOrderItem(itemId);
-      await refreshCurrentBill(selectedTable.id);
-      loadTables();
+      await applyItemChange(itemId, quantity);
     } catch (err: any) {
-      alert(`Não foi possível remover o item: ${err.message}`);
+      if (err instanceof ApiError && err.code === 'SUPERVISOR_REQUIRED') {
+        setPendingChange({ itemId, quantity });
+        return;
+      }
+      setFeedback({ type: 'error', message: `Não foi possível alterar o item: ${err.message}` });
     }
   }
 
-  async function handleUpdateQuantity(itemId: string, newQuantity: number) {
+  async function handleDeleteItem(itemId: string) {
     if (!selectedTable) return;
-    try {
-      await api.updateOrderItemQuantity(itemId, newQuantity);
-      await refreshCurrentBill(selectedTable.id);
-      loadTables();
-    } catch (err: any) {
-      alert(`Não foi possível alterar a quantidade: ${err.message}`);
-    }
+    if (!window.confirm('Remover este item da comanda?')) return;
+    await handleItemChange(itemId, 0);
+  }
+
+  async function handleUpdateQuantity(itemId: string, newQuantity: number) {
+    await handleItemChange(itemId, newQuantity);
   }
 
   async function handleReprintReceipt(orderId: string) {
@@ -323,7 +338,7 @@ export const CashierScreen: React.FC = () => {
                       <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{ord.waiter_name || 'Equipe'}</span>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {ord.items?.map((it: any) => (
+                      {ord.items?.filter((it: any) => it.status !== 'CANCELLED').map((it: any) => (
                         <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', fontSize: '0.85rem' }}>
                           <div>
                             <span style={{ fontWeight: 600 }}>{it.quantity}x {it.menu_item_name}</span>
@@ -400,6 +415,8 @@ export const CashierScreen: React.FC = () => {
         <button onClick={loadTables} className="btn btn-outline btn-sm"><RefreshCw size={15} /> Atualizar mesas</button>
       </div>
 
+      <CashDrawerPanel onMessage={(type, message) => setFeedback({ type, message })} />
+
       <div className="split-layout split-layout-wide">
         <div className="card card-pad">
           <div className="card-head">
@@ -470,7 +487,7 @@ export const CashierScreen: React.FC = () => {
                           <span>Pedido {idx + 1} — {new Date(ord.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                           <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{ord.waiter_name || 'Equipe'}</span>
                         </div>
-                        {ord.items?.map((it: any) => (
+                        {ord.items?.filter((it: any) => it.status !== 'CANCELLED').map((it: any) => (
                           <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '0.82rem' }}>
                             <span>{it.quantity}x {it.menu_item_name}</span>
                             <span className="money">R$ {it.total_price.toFixed(2)}</span>
@@ -663,6 +680,18 @@ export const CashierScreen: React.FC = () => {
             ))}
           </div>
         </div>
+      )}
+      {pendingChange && (
+        <SupervisorPinModal
+          title="Autorização do supervisor"
+          description="Este item já foi para a cozinha ou o bar. Para cancelar ou reduzir, o supervisor precisa autorizar."
+          onCancel={() => setPendingChange(null)}
+          onConfirm={async (pin, reason) => {
+            await applyItemChange(pendingChange.itemId, pendingChange.quantity, { reason, supervisor_pin: pin });
+            setPendingChange(null);
+            setFeedback({ type: 'success', message: 'Alteração autorizada e registrada na auditoria.' });
+          }}
+        />
       )}
     </div>
   );
