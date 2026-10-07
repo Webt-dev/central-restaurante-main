@@ -12,12 +12,17 @@ export interface RestaurantSettings {
   payment_methods_allowed: string[];
   /** Tema da interface, escolhido pelo ADMIN e aplicado em todos os aparelhos. */
   theme: ThemePreference;
+  /** Módulo de emissão de NFC-e ligado (somente leitura aqui; muda em /api/fiscal/ativar). */
+  fiscal_enabled: boolean;
 }
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 const VALID_THEMES: ThemePreference[] = ['light', 'dark', 'system'];
 
 const VALID_PAYMENT_METHODS = ['CASH', 'CREDIT_CARD', 'DEBIT_CARD', 'PIX'];
+
+const MENU_FISCAL_FIELDS = ['ncm', 'cfop', 'cest', 'csosn', 'cst_icms', 'cst_pis_cofins', 'origem', 'gtin'] as const;
+export type MenuFiscalFields = Partial<Record<(typeof MENU_FISCAL_FIELDS)[number], string>>;
 
 export class AdminRepository {
   // ==========================================
@@ -75,24 +80,35 @@ export class AdminRepository {
   // ==========================================
   // 2. GESTÃO DO CARDÁPIO
   // ==========================================
-  static addMenuItem(data: { name: string; description: string; price: number; category: string }): MenuItem {
+  static addMenuItem(data: { name: string; description: string; price: number; category: string } & MenuFiscalFields): MenuItem {
     const id = `m_${randomUUID().substring(0, 6)}`;
     db.prepare(`
       INSERT INTO menu_items (id, name, description, price, category, active)
       VALUES (?, ?, ?, ?, ?, 1)
     `).run(id, data.name, data.description || '', data.price, data.category);
+    this.saveFiscalFields(id, data);
 
     return db.prepare('SELECT * FROM menu_items WHERE id = ?').get(id) as MenuItem;
   }
 
-  static updateMenuItem(id: string, data: { name: string; description: string; price: number; category: string; active?: boolean }): MenuItem {
+  static updateMenuItem(id: string, data: { name: string; description: string; price: number; category: string; active?: boolean } & MenuFiscalFields): MenuItem {
     db.prepare(`
       UPDATE menu_items
       SET name = ?, description = ?, price = ?, category = ?, active = ?
       WHERE id = ?
     `).run(data.name, data.description || '', data.price, data.category, data.active !== false ? 1 : 0, id);
+    this.saveFiscalFields(id, data);
 
     return db.prepare('SELECT * FROM menu_items WHERE id = ?').get(id) as MenuItem;
+  }
+
+  /** Grava só os campos fiscais enviados; string vazia limpa (volta ao padrão da configuração). */
+  private static saveFiscalFields(id: string, data: MenuFiscalFields): void {
+    for (const field of MENU_FISCAL_FIELDS) {
+      const value = data[field];
+      if (value === undefined) continue;
+      db.prepare(`UPDATE menu_items SET ${field} = ? WHERE id = ?`).run(value === '' ? null : value, id);
+    }
   }
 
   /**
@@ -158,7 +174,8 @@ export class AdminRepository {
       address: settingsMap['address'] ?? '',
       service_tax_percent: Number(settingsMap['service_tax_percent'] ?? 10),
       payment_methods_allowed: parsePaymentMethods(settingsMap['payment_methods_allowed']),
-      theme: VALID_THEMES.includes(settingsMap['theme'] as ThemePreference) ? (settingsMap['theme'] as ThemePreference) : 'system'
+      theme: VALID_THEMES.includes(settingsMap['theme'] as ThemePreference) ? (settingsMap['theme'] as ThemePreference) : 'system',
+      fiscal_enabled: (db.prepare("SELECT value FROM fiscal_settings WHERE key = 'enabled'").get() as { value: string } | undefined)?.value === 'true'
     };
   }
 

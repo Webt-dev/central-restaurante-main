@@ -80,8 +80,8 @@ export function useSession(): Session | null {
 
 /** Telas que cada papel pode abrir. ADMIN vê tudo. */
 export const SCREENS_BY_ROLE: Record<UserRole, string[]> = {
-  ADMIN: ['/garcom', '/cozinha', '/bar', '/caixa', '/relatorios', '/admin'],
-  CASHIER: ['/caixa', '/garcom', '/relatorios'],
+  ADMIN: ['/garcom', '/cozinha', '/bar', '/caixa', '/relatorios', '/fiscal', '/admin'],
+  CASHIER: ['/caixa', '/garcom', '/relatorios', '/fiscal'],
   WAITER: ['/garcom'],
   KITCHEN: ['/cozinha', '/bar']
 };

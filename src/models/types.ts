@@ -33,6 +33,14 @@ export interface MenuItem {
   category: string;
   active: boolean;
   ingredients?: MenuItemIngredientDetail[];
+  ncm?: string | null;
+  cfop?: string | null;
+  cest?: string | null;
+  csosn?: string | null;
+  cst_icms?: string | null;
+  cst_pis_cofins?: string | null;
+  origem?: string | null;
+  gtin?: string | null;
   created_at: string;
 }
 

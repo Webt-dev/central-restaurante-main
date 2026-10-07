@@ -8,6 +8,7 @@ import kitchenRoutes from './kitchen.routes.js';
 import cashierRoutes from './cashier.routes.js';
 import systemRoutes from './system.routes.js';
 import adminRoutes from './admin.routes.js';
+import fiscalRoutes from './fiscal.routes.js';
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use('/kitchen', kitchenRoutes);
 router.use('/cashier', cashierRoutes);
 router.use('/system', systemRoutes);
 router.use('/admin', adminRoutes);
+router.use('/fiscal', fiscalRoutes);
 
 export default router;

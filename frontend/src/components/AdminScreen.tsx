@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import type { Table, MenuItem, InventoryItem, RestaurantSettings, ThemePreference } from '../types';
 import { UsersPanel } from './UsersPanel';
 import { SupervisorPinSettings } from './SupervisorPinSettings';
+import { FiscalModulePanel } from './FiscalModulePanel';
+import { MenuFiscalFields, type MenuFiscalValues } from './MenuFiscalFields';
 import { api } from '../services/api';
 import { socket } from '../services/socket';
 import { loadSettings, normalizePercent, formatPercent } from '../services/settings';
@@ -9,10 +11,10 @@ import { formatQuantity, cleanInventoryName, getStockHealth, UNIT_OPTIONS, unitL
 import {
   Utensils, Package, Settings, Plus, Trash2, Pencil, Save, X, CheckCircle2,
   AlertTriangle, Grid, CreditCard, Building2, RefreshCw, Search,
-  KeyRound, Percent, Users, Palette, Sun, Moon, Monitor
+  KeyRound, Percent, Users, Palette, Sun, Moon, Monitor, Blocks
 } from 'lucide-react';
 
-type AdminTab = 'tables' | 'menu' | 'inventory' | 'users' | 'settings';
+type AdminTab = 'tables' | 'menu' | 'inventory' | 'users' | 'modules' | 'settings';
 
 const THEME_OPTIONS: { key: ThemePreference; label: string; hint: string; Icon: typeof Sun }[] = [
   { key: 'light', label: 'Claro', hint: 'Fundo claro em todos os aparelhos', Icon: Sun },
@@ -57,6 +59,7 @@ export const AdminScreen: React.FC = () => {
   const [menuCategoryFilter, setMenuCategoryFilter] = useState('ALL');
   const [showAddMenuModal, setShowAddMenuModal] = useState(false);
   const [newMenuForm, setNewMenuForm] = useState({ name: '', description: '', price: '', category: 'Pratos Principais' });
+  const [newMenuFiscal, setNewMenuFiscal] = useState<MenuFiscalValues>({});
   const [editingMenu, setEditingMenu] = useState<MenuItem | null>(null);
 
   const [invSearch, setInvSearch] = useState('');
@@ -188,6 +191,12 @@ export const AdminScreen: React.FC = () => {
   }
 
   // ------------------------------------------------------------- Cardápio
+  /** Campos fiscais como texto (vazio = usar o padrão da configuração fiscal). */
+  function fiscalPayload(v: MenuFiscalValues) {
+    const keys = ['ncm', 'cfop', 'cest', 'csosn', 'cst_icms', 'cst_pis_cofins', 'origem', 'gtin'] as const;
+    return Object.fromEntries(keys.map(k => [k, v[k] ?? ''])) as Record<(typeof keys)[number], string>;
+  }
+
   async function handleAddMenuItem(e: React.FormEvent) {
     e.preventDefault();
     const price = parseFloat(newMenuForm.price.replace(',', '.'));
@@ -199,10 +208,12 @@ export const AdminScreen: React.FC = () => {
         name: newMenuForm.name,
         description: newMenuForm.description,
         price,
-        category: newMenuForm.category
+        category: newMenuForm.category,
+        ...fiscalPayload(newMenuFiscal)
       });
       setShowAddMenuModal(false);
       setNewMenuForm({ name: '', description: '', price: '', category: 'Pratos Principais' });
+      setNewMenuFiscal({});
       showMessage('success', 'Produto adicionado ao cardápio.');
       loadAllAdminData();
     } catch (err: any) {
@@ -219,7 +230,8 @@ export const AdminScreen: React.FC = () => {
         description: editingMenu.description,
         price: Number(editingMenu.price),
         category: editingMenu.category,
-        active: editingMenu.active
+        active: editingMenu.active,
+        ...fiscalPayload(editingMenu)
       });
       setEditingMenu(null);
       showMessage('success', 'Produto atualizado.');
@@ -403,6 +415,9 @@ export const AdminScreen: React.FC = () => {
         <button onClick={() => setActiveTab('users')} className={`tab ${activeTab === 'users' ? 'is-active' : ''}`}>
           <Users size={16} /> Usuários
         </button>
+        <button onClick={() => setActiveTab('modules')} className={`tab ${activeTab === 'modules' ? 'is-active' : ''}`}>
+          <Blocks size={16} /> Módulos
+        </button>
         <button onClick={() => setActiveTab('settings')} className={`tab ${activeTab === 'settings' ? 'is-active' : ''}`}>
           <Settings size={16} /> Configurações
         </button>
@@ -579,6 +594,7 @@ export const AdminScreen: React.FC = () => {
                     <label className="label">Descrição curta</label>
                     <textarea placeholder="Acompanha farofa e vinagrete" value={newMenuForm.description} onChange={(e) => setNewMenuForm({ ...newMenuForm, description: e.target.value })} className="input" />
                   </div>
+                  <MenuFiscalFields value={newMenuFiscal} onChange={setNewMenuFiscal} />
                   <div className="modal-actions">
                     <button type="button" onClick={() => setShowAddMenuModal(false)} className="btn btn-outline">Cancelar</button>
                     <button type="submit" className="btn btn-primary"><Save size={16} /> Salvar produto</button>
@@ -616,6 +632,7 @@ export const AdminScreen: React.FC = () => {
                     <input type="checkbox" checked={editingMenu.active !== false} onChange={(e) => setEditingMenu({ ...editingMenu, active: e.target.checked })} />
                     Disponível para venda no cardápio
                   </label>
+                  <MenuFiscalFields value={editingMenu} onChange={v => setEditingMenu({ ...editingMenu, ...v })} />
                   <div className="modal-actions">
                     <button type="button" onClick={() => setEditingMenu(null)} className="btn btn-outline">Cancelar</button>
                     <button type="submit" className="btn btn-primary"><Save size={16} /> Salvar alterações</button>
@@ -794,6 +811,9 @@ export const AdminScreen: React.FC = () => {
 
       {/* ------------------------------------------------------- USUÁRIOS */}
       {activeTab === 'users' && <UsersPanel onMessage={showMessage} />}
+
+      {/* -------------------------------------------------------- MÓDULOS */}
+      {activeTab === 'modules' && <FiscalModulePanel onMessage={showMessage} />}
 
       {/* -------------------------------------------------- CONFIGURAÇÕES */}
       {/* Centralizado: coluna estreita no meio da tela, mais confortável de ler */}

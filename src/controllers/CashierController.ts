@@ -36,7 +36,9 @@ export const processPaymentSchema = z.object({
       amount: z.number().positive('Valor do pagamento deve ser positivo'),
       amount_paid: z.number().positive().optional()
     })
-  ).min(1, 'Deve haver ao menos uma forma de pagamento')
+  ).min(1, 'Deve haver ao menos uma forma de pagamento'),
+  /** CPF na nota (opcional, só usado quando a emissão fiscal está ligada). */
+  cpf_consumidor: z.string().trim().max(14).optional()
 });
 
 export class CashierController {
@@ -76,9 +78,9 @@ export class CashierController {
   static async processPayment(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
       const cashierUserId = req.user!.userId;
-      const { table_id, payments, include_tip } = req.body;
+      const { table_id, payments, include_tip, cpf_consumidor } = req.body;
 
-      const result = CashierService.processTablePayment(table_id, cashierUserId, payments, include_tip);
+      const result = CashierService.processTablePayment(table_id, cashierUserId, payments, include_tip, cpf_consumidor || undefined);
       res.json(result);
     } catch (err) {
       next(err);

@@ -1561,3 +1561,34 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .choice-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .choice-label { font-weight: 600; font-size: 0.92rem; }
 .choice-check { color: var(--brand); flex-shrink: 0; }
+
+/* =========================================================================
+   INTERRUPTOR (liga/desliga) — ex.: módulo fiscal
+   ========================================================================= */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px 4px 4px;
+  min-height: 40px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+}
+.switch-knob {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-control);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease;
+}
+.switch.is-on { background: var(--green); border-color: var(--green); color: var(--on-accent); padding: 4px 4px 4px 12px; flex-direction: row-reverse; }
+.switch.is-on .switch-knob { border-color: var(--green); }
+.switch:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.switch:disabled { cursor: not-allowed; opacity: 1; color: var(--text-muted); }

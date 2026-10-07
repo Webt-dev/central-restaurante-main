@@ -84,7 +84,9 @@ export interface DadosChaveAcesso {
  * cUF(2) AAMM(4) CNPJ(14) mod(2) serie(3) nNF(9) tpEmis(1) cNF(8) cDV(1)
  */
 export function montarChaveAcesso(dados: DadosChaveAcesso): string {
-  const cUF = CODIGOS_UF[dados.uf.toUpperCase()] || '35';
+  // UF desconhecida é erro: antes caía silenciosamente em SP ('35').
+  const cUF = CODIGOS_UF[dados.uf.toUpperCase()];
+  if (!cUF) throw new Error(`UF inválida: ${dados.uf}`);
   const ano = String(dados.dataEmissao.getFullYear()).slice(-2);
   const mes = padZeros(dados.dataEmissao.getMonth() + 1, 2);
 

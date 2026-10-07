@@ -133,6 +133,69 @@ const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_cash_mov_session ON cash_movements(session_id);
       `);
     }
+  },
+  {
+    version: 4,
+    name: 'modulo-fiscal-nfce',
+    up: db => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS fiscal_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS fiscal_sequence (
+          serie INTEGER PRIMARY KEY,
+          ultimo_numero INTEGER NOT NULL DEFAULT 0
+        );
+
+        -- Uma NFC-e por fechamento de conta. O payload guarda o retrato da venda
+        -- (itens, pagamentos, emitente) para reenviar igualzinho depois.
+        CREATE TABLE IF NOT EXISTS fiscal_documents (
+          id TEXT PRIMARY KEY,
+          checkout_id TEXT NOT NULL UNIQUE,
+          table_id TEXT,
+          table_number INTEGER,
+          provider TEXT NOT NULL,
+          ambiente INTEGER NOT NULL,
+          serie INTEGER NOT NULL,
+          numero INTEGER NOT NULL,
+          chave TEXT UNIQUE,
+          status TEXT NOT NULL DEFAULT 'PENDENTE'
+            CHECK(status IN ('PENDENTE', 'AUTORIZADO', 'CONTINGENCIA', 'REJEITADO', 'CANCELADO', 'ERRO')),
+          tp_emis INTEGER NOT NULL DEFAULT 1,
+          valor_total REAL NOT NULL,
+          payload_json TEXT NOT NULL,
+          protocolo TEXT,
+          motivo TEXT,
+          xml_path TEXT,
+          qr_code_url TEXT,
+          tentativas INTEGER NOT NULL DEFAULT 0,
+          proxima_tentativa TEXT,
+          contingencia_desde TEXT,
+          autorizado_em TEXT,
+          cancelado_em TEXT,
+          cancel_protocolo TEXT,
+          cancel_justificativa TEXT,
+          created_by TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+          UNIQUE (serie, numero, ambiente)
+        );
+        CREATE INDEX IF NOT EXISTS idx_fiscal_docs_status ON fiscal_documents(status);
+        CREATE INDEX IF NOT EXISTS idx_fiscal_docs_created ON fiscal_documents(created_at);
+      `);
+
+      // Dados fiscais por produto. Sem valor padrão de propósito: produto sem
+      // NCM bloqueia a emissão em vez de sair com um NCM "chutado".
+      for (const [col, def] of [
+        ['ncm', 'TEXT'], ['cfop', 'TEXT'], ['cest', 'TEXT'], ['origem', 'TEXT'],
+        ['csosn', 'TEXT'], ['cst_icms', 'TEXT'], ['cst_pis_cofins', 'TEXT'], ['unidade_fiscal', 'TEXT'], ['gtin', 'TEXT']
+      ] as const) {
+        addColumn(db, 'menu_items', col, def);
+      }
+    }
   }
 ];
 

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Utensils, ChefHat, GlassWater, Receipt, BarChart3, Settings,
-  Wifi, WifiOff, RefreshCw, LogOut, AlertTriangle
+  Wifi, WifiOff, RefreshCw, LogOut, AlertTriangle, FileText
 } from 'lucide-react';
 import { useOutbox } from '../services/outbox';
 import { PendingOrdersModal } from './PendingOrdersModal';
@@ -15,13 +15,8 @@ interface HeaderProps {
 }
 
 /**
- * Navegação do sistema.
- *
- * A aba "Notas fiscais" foi removida: a rota /fiscal só existe se o módulo
- * fiscal tiver sido instalado (FiscalScreen + rotas do backend). Enquanto
- * isso não acontece, o botão levava a uma tela inexistente.
- * Para reativar, basta acrescentar de volta:
- *   { path: '/fiscal', label: 'Notas fiscais', short: 'Notas', Icon: FileText }
+ * Navegação do sistema. Cada papel vê só as suas telas; "Notas fiscais" só
+ * aparece quando a emissão de NFC-e está ligada em Gestão → Módulos.
  */
 const NAV_ITEMS = [
   { path: '/garcom', label: 'Garçom', short: 'Garçom', Icon: Utensils },
@@ -29,6 +24,7 @@ const NAV_ITEMS = [
   { path: '/bar', label: 'Bar', short: 'Bar', Icon: GlassWater },
   { path: '/caixa', label: 'Caixa', short: 'Caixa', Icon: Receipt },
   { path: '/relatorios', label: 'Relatórios', short: 'Relatos', Icon: BarChart3 },
+  { path: '/fiscal', label: 'Notas fiscais', short: 'Notas', Icon: FileText },
   { path: '/admin', label: 'Gestão', short: 'Gestão', Icon: Settings }
 ];
 
@@ -44,7 +40,7 @@ export const Header: React.FC<HeaderProps> = ({ isOnline }) => {
   const settings = useSettings();
   const role = session?.user.role ?? 'WAITER';
   // Cada papel só vê as telas que pode abrir.
-  const navItems = NAV_ITEMS.filter(item => canAccess(role, item.path));
+  const navItems = NAV_ITEMS.filter(item => canAccess(role, item.path) && (item.path !== '/fiscal' || settings.fiscal_enabled));
 
   function isActive(path: string) {
     if (currentPath === '/') return path === homeFor(role);

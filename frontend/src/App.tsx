@@ -8,6 +8,7 @@ import { ReportsStockScreen } from './components/ReportsStockScreen';
 import { AdminScreen } from './components/AdminScreen';
 import { LoginScreen } from './components/LoginScreen';
 import { ChangePasswordScreen } from './components/ChangePasswordScreen';
+import { FiscalScreen } from './components/FiscalScreen';
 import { socket } from './services/socket';
 import { loadSettings } from './services/settings';
 import { useSession, canAccess, homeFor, type UserRole } from './services/session';
@@ -106,6 +107,7 @@ function AuthenticatedApp({ role }: { role: UserRole }) {
           <Route path="/bar" element={<Guard role={role} path="/bar"><KitchenScreen type="BAR" /></Guard>} />
           <Route path="/caixa" element={<Guard role={role} path="/caixa"><CashierScreen /></Guard>} />
           <Route path="/relatorios" element={<Guard role={role} path="/relatorios"><ReportsStockScreen /></Guard>} />
+          <Route path="/fiscal" element={<Guard role={role} path="/fiscal"><FiscalScreen /></Guard>} />
           <Route path="/admin" element={<Guard role={role} path="/admin"><AdminScreen /></Guard>} />
           <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
         </Routes>

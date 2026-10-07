@@ -14,6 +14,14 @@ export interface MenuItem {
   price: number;
   category: string;
   active: boolean;
+  ncm?: string | null;
+  cfop?: string | null;
+  cest?: string | null;
+  csosn?: string | null;
+  cst_icms?: string | null;
+  cst_pis_cofins?: string | null;
+  origem?: string | null;
+  gtin?: string | null;
 }
 
 export type OrderStatus = 'OPEN' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CLOSED' | 'CANCELLED';
@@ -122,6 +130,8 @@ export interface RestaurantSettings {
   service_tax_percent: number;
   payment_methods_allowed: string[];
   theme: ThemePreference;
+  /** Emissão de NFC-e ligada em Gestão → Módulos. */
+  fiscal_enabled?: boolean;
 }
 
 export type ThemePreference = 'light' | 'dark' | 'system';

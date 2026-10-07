@@ -10,6 +10,7 @@ import qrcode from 'qrcode-terminal';
 import { env } from './config/env.js';
 import { initDatabase, db } from './config/database.js';
 import { scheduleBackups } from './services/BackupService.js';
+import { startFiscalWorker } from './fiscal/FiscalService.js';
 import { initSocketIO } from './sockets/socketManager.js';
 import apiRoutes from './routes/index.js';
 import { errorHandler } from './middlewares/errorHandler.js';
@@ -22,6 +23,7 @@ const __dirname = path.dirname(__filename);
 // Inicializar banco de dados SQLite com tabelas e dados prévios
 initDatabase();
 scheduleBackups(db);
+startFiscalWorker();
 
 const app = express();
 const httpServer = createServer(app);

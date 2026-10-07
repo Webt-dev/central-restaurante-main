@@ -21,6 +21,68 @@ export class ApiError extends Error {
   }
 }
 
+export type StatusFiscal = 'PENDENTE' | 'AUTORIZADO' | 'CONTINGENCIA' | 'REJEITADO' | 'CANCELADO' | 'ERRO';
+
+export interface FiscalConfig {
+  enabled: boolean;
+  provider: 'acbr' | 'simulacao';
+  acbr_host: string;
+  acbr_port: number;
+  ambiente: 1 | 2;
+  serie: number;
+  cnpj: string;
+  ie: string;
+  razao_social: string;
+  nome_fantasia: string;
+  crt: '' | '1' | '2' | '3' | '4';
+  logradouro: string;
+  numero: string;
+  bairro: string;
+  codigo_municipio: string;
+  municipio: string;
+  uf: string;
+  cep: string;
+  telefone: string;
+  cfop_padrao: string;
+  csosn_padrao: string;
+  cst_icms_padrao: string;
+  cst_pis_cofins_padrao: string;
+  origem_padrao: string;
+}
+
+export interface FiscalConfigResponse {
+  config: FiscalConfig;
+  pendencias: string[];
+  produtos_sem_ncm: { id: string; name: string; category: string }[];
+}
+
+export interface FiscalStatus {
+  enabled: boolean;
+  provider: string;
+  ambiente: number;
+  por_status: Record<StatusFiscal, number>;
+  contingencia_mais_antiga: string | null;
+  alerta_contingencia: boolean;
+  pendencias: string[];
+}
+
+export interface DocumentoFiscal {
+  id: string;
+  table_number: number | null;
+  ambiente: number;
+  serie: number;
+  numero: number;
+  chave: string | null;
+  status: StatusFiscal;
+  tp_emis: number;
+  valor_total: number;
+  protocolo: string | null;
+  motivo: string | null;
+  contingencia_desde: string | null;
+  autorizado_em: string | null;
+  created_at: string;
+}
+
 export interface ItemChangeOptions {
   reason?: string;
   supervisor_pin?: string;
@@ -182,10 +244,10 @@ export const api = {
     return await fetchWithTimeout(`/orders/table/${tableId}/bill`);
   },
 
-  async processPayment(tableId: string, payments: { method: string; amount: number; amount_paid?: number }[], include_tip: boolean = false) {
+  async processPayment(tableId: string, payments: { method: string; amount: number; amount_paid?: number }[], include_tip: boolean = false, cpf_consumidor?: string) {
     return await fetchWithTimeout('/cashier/payment', {
       method: 'POST',
-      body: JSON.stringify({ table_id: tableId, payments, include_tip })
+      body: JSON.stringify({ table_id: tableId, payments, include_tip, cpf_consumidor: cpf_consumidor || undefined })
     });
   },
 
@@ -264,14 +326,14 @@ export const api = {
     return await fetchWithTimeout(`/admin/tables/${id}`, { method: 'DELETE' });
   },
 
-  async addMenuItem(data: { name: string; description: string; price: number; category: string }): Promise<MenuItem> {
+  async addMenuItem(data: { name: string; description: string; price: number; category: string } & Record<string, unknown>): Promise<MenuItem> {
     return await fetchWithTimeout('/admin/menu', {
       method: 'POST',
       body: JSON.stringify(data)
     });
   },
 
-  async updateMenuItem(id: string, data: { name: string; description: string; price: number; category: string; active?: boolean }): Promise<MenuItem> {
+  async updateMenuItem(id: string, data: { name: string; description: string; price: number; category: string; active?: boolean } & Record<string, unknown>): Promise<MenuItem> {
     return await fetchWithTimeout(`/admin/menu/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
@@ -366,91 +428,40 @@ export const api = {
   },
 
   // ==========================================
-  // MÓDULO FISCAL (NFC-e)
+  // MÓDULO FISCAL (NFC-e) — opcional
   // ==========================================
 
-  async getFiscalConfig(): Promise<any> {
-    try {
-      return await fetchWithTimeout('/fiscal/config');
-    } catch {
-      return {
-        cnpj: '', inscricao_estadual: '', razao_social: '', nome_fantasia: '',
-        logradouro: '', numero_endereco: '', bairro: '', codigo_municipio: '',
-        nome_municipio: '', uf: 'SP', cep: '', telefone: '',
-        regime_tributario: '1', serie_nfce: 1, ambiente: 2,
-        csc_id: '', csc_configurado: false, url_consulta: '',
-        cfop_padrao: '5102', csosn_padrao: '102', cst_pis_cofins: '07',
-        emissao_ativa: false
-      };
-    }
+  async getFiscalStatus(): Promise<FiscalStatus> {
+    return await fetchWithTimeout('/fiscal/status');
   },
 
-  async updateFiscalConfig(data: any): Promise<any> {
-    return await fetchWithTimeout('/fiscal/config', {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
+  async getFiscalConfig(): Promise<FiscalConfigResponse> {
+    return await fetchWithTimeout('/fiscal/config');
   },
 
-  async validarFiscalConfig(): Promise<{ pronto: boolean; pendencias: string[] }> {
-    try {
-      return await fetchWithTimeout('/fiscal/config/validar');
-    } catch {
-      return { pronto: false, pendencias: ['Não foi possível consultar o servidor.'] };
-    }
+  async updateFiscalConfig(data: Partial<FiscalConfig>): Promise<FiscalConfigResponse> {
+    return await fetchWithTimeout('/fiscal/config', { method: 'PUT', body: JSON.stringify(data) });
   },
 
-  async getFiscalDocumentos(data?: string): Promise<any[]> {
-    try {
-      const dados = await fetchWithTimeout(`/fiscal/documentos${data ? `?data=${data}` : ''}`);
-      return Array.isArray(dados) ? dados : [];
-    } catch {
-      return [];
-    }
+  async testarFiscal(): Promise<{ online: boolean; motivo: string }> {
+    return await fetchWithTimeout('/fiscal/testar-conexao', { method: 'POST' }, 50000);
   },
 
-  async getFiscalDocumento(id: string): Promise<any> {
-    return await fetchWithTimeout(`/fiscal/documentos/${id}`);
+  async ativarFiscal(enabled: boolean): Promise<{ enabled: boolean }> {
+    return await fetchWithTimeout('/fiscal/ativar', { method: 'POST', body: JSON.stringify({ enabled }) }, 50000);
   },
 
-  async getFiscalXml(id: string): Promise<{ xml: string }> {
-    return await fetchWithTimeout(`/fiscal/documentos/${id}/xml`);
+  async getFiscalDocumentos(data?: string): Promise<DocumentoFiscal[]> {
+    const dados = await fetchWithTimeout(`/fiscal/documentos${data ? `?data=${data}` : ''}`);
+    return Array.isArray(dados) ? dados : [];
   },
 
-  async getFiscalResumo(data?: string): Promise<any> {
-    try {
-      return await fetchWithTimeout(`/fiscal/resumo${data ? `?data=${data}` : ''}`);
-    } catch {
-      return {
-        data: new Date().toISOString().split('T')[0]!,
-        total_documentos: 0,
-        valor_total: 0,
-        por_status: { PENDENTE: 0, GERADO: 0, AUTORIZADO: 0, REJEITADO: 0, CANCELADO: 0 },
-        ambiente: 2,
-        emissao_ativa: false
-      };
-    }
+  async reprocessarFiscal(id: string): Promise<DocumentoFiscal> {
+    return await fetchWithTimeout(`/fiscal/documentos/${id}/reprocessar`, { method: 'POST' }, 50000);
   },
 
-  async exportarFiscal(data_inicio: string, data_fim: string): Promise<any> {
-    return await fetchWithTimeout('/fiscal/exportar', {
-      method: 'POST',
-      body: JSON.stringify({ data_inicio, data_fim })
-    }, 20000);
-  },
-
-  async autorizarFiscal(id: string, protocolo: string): Promise<any> {
-    return await fetchWithTimeout(`/fiscal/documentos/${id}/autorizar`, {
-      method: 'POST',
-      body: JSON.stringify({ protocolo })
-    });
-  },
-
-  async rejeitarFiscal(id: string, motivo: string): Promise<any> {
-    return await fetchWithTimeout(`/fiscal/documentos/${id}/rejeitar`, {
-      method: 'POST',
-      body: JSON.stringify({ motivo })
-    });
+  async cancelarFiscal(id: string, justificativa: string): Promise<DocumentoFiscal> {
+    return await fetchWithTimeout(`/fiscal/documentos/${id}/cancelar`, { method: 'POST', body: JSON.stringify({ justificativa }) }, 50000);
   },
 
   // ==========================================

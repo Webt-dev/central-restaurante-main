@@ -175,6 +175,28 @@ Variável opcional `BACKUP_MIRROR_DIR`: grava uma segunda cópia de cada backup 
 
 ---
 
+## 🧾 Emissão de NFC-e (módulo opcional)
+
+Vem **desligada**. Para clientes que vão emitir a nota pelo próprio sistema:
+
+1. No computador do caixa, instale o **ACBrMonitorPLUS** e configure nele o certificado
+   digital A1 do restaurante, o CSC/ID Token da SEFAZ, a UF e a impressora do DANFE.
+2. Em **Gestão → Módulos**, preencha motor fiscal (endereço/porta do ACBrMonitor), emitente e
+   tributação padrão (CFOP, CSOSN/CST, PIS/COFINS — confirme com o contador).
+3. Cadastre o **NCM** de todos os produtos (Gestão → Cardápio → Editar → Dados fiscais).
+4. Clique em **Testar conexão com a SEFAZ** e ligue o módulo. Comece em **homologação**.
+
+Com o módulo ligado, cada conta fechada no caixa gera uma NFC-e (CPF na nota opcional).
+Sem internet, a nota sai em **contingência offline** e é transmitida sozinha quando a conexão
+volta; a tela **Notas fiscais** alerta se uma contingência passar de 20 horas. Cancelamento:
+até 30 minutos após a autorização, com justificativa.
+
+O motor **Simulação** (só homologação) gera notas sem valor fiscal para demonstração.
+Os comandos do ACBrMonitor ficam em `src/fiscal/AcbrMonitorProvider.ts` e devem ser validados
+contra a versão instalada, em homologação, antes do primeiro cliente.
+
+---
+
 ## 🔑 Primeiro acesso e usuários
 
 Não existem usuários nem senhas padrão. Na primeira vez que o sistema é aberto,

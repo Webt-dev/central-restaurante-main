@@ -32,6 +32,10 @@ function findRow(table: 'tables' | 'menu_items' | 'inventory', id: string): unkn
   return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
 }
 
+/** Código fiscal só com números, de tamanho fixo, ou vazio (= usar o padrão). */
+const fiscalCode = (size: number, message: string) =>
+  z.string().trim().transform(v => v.replace(/\D/g, '')).refine(v => v === '' || v.length === size, message).optional();
+
 const money = z.coerce.number().finite().min(0, 'O valor não pode ser negativo').max(100_000);
 const qty = z.coerce.number().finite().min(0, 'A quantidade não pode ser negativa').max(10_000_000);
 
@@ -45,7 +49,16 @@ const menuSchema = z.object({
   description: z.string().trim().max(500).optional().default(''),
   price: money.refine(v => v > 0, 'O preço deve ser maior que zero'),
   category: z.string().trim().min(1, 'Categoria é obrigatória').max(60),
-  active: z.boolean().optional()
+  active: z.boolean().optional(),
+  // Dados fiscais (NFC-e). Vazio = usa o padrão da configuração fiscal; NCM é obrigatório para emitir.
+  ncm: fiscalCode(8, 'NCM deve ter 8 números'),
+  cfop: fiscalCode(4, 'CFOP deve ter 4 números'),
+  cest: fiscalCode(7, 'CEST deve ter 7 números'),
+  csosn: fiscalCode(3, 'CSOSN deve ter 3 números'),
+  cst_icms: fiscalCode(2, 'CST de ICMS deve ter 2 números'),
+  cst_pis_cofins: fiscalCode(2, 'CST de PIS/COFINS deve ter 2 números'),
+  origem: fiscalCode(1, 'Origem deve ter 1 número'),
+  gtin: z.string().trim().regex(/^(\d{8}|\d{12,14})?$/, 'GTIN deve ter 8, 12, 13 ou 14 números').optional()
 });
 
 const inventorySchema = z.object({

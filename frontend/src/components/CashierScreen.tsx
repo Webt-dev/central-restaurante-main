@@ -66,6 +66,7 @@ export const CashierScreen: React.FC = () => {
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [receiptText, setReceiptText] = useState<string | null>(null);
   // Alteração que esbarrou em item já preparado: aguarda o PIN do supervisor.
+  const [cpfNota, setCpfNota] = useState('');
   const [pendingChange, setPendingChange] = useState<{ itemId: string; quantity: number } | null>(null);
 
   useEffect(() => {
@@ -287,7 +288,8 @@ export const CashierScreen: React.FC = () => {
         }).filter(p => p.amount > 0 || (p.amount_paid || 0) > 0);
       }
 
-      const result = await api.processPayment(selectedTable.id, paymentsToSend, includeTip && taxEnabled);
+      const result = await api.processPayment(selectedTable.id, paymentsToSend, includeTip && taxEnabled, cpfNota || undefined);
+      setCpfNota('');
       if (result.receipt_text) setReceiptText(result.receipt_text);
 
       const trocoCalculado = isSplitMode ? totalSplitChange : singleChange;
@@ -295,7 +297,9 @@ export const CashierScreen: React.FC = () => {
 
       setFeedback({
         type: 'success',
-        message: `Mesa ${selectedTable.number} fechada.${troco > 0 ? ` Troco: R$ ${troco.toFixed(2)}.` : ''}`
+        message: `Mesa ${selectedTable.number} fechada.${troco > 0 ? ` Troco: R$ ${troco.toFixed(2)}.` : ''}${
+          result.fiscal ? ` NFC-e nº ${result.fiscal.numero} enviada para emissão (acompanhe em Notas fiscais).` : ''
+        }`
       });
 
       setSelectedTable(null);
@@ -638,6 +642,14 @@ export const CashierScreen: React.FC = () => {
                       </button>
                     </div>
                   )}
+                </div>
+              )}
+
+              {settings.fiscal_enabled && (
+                <div className="field">
+                  <label className="label" htmlFor="cpf-nota">CPF na nota (opcional)</label>
+                  <input id="cpf-nota" className="input" inputMode="numeric" maxLength={14} placeholder="Somente se o cliente pedir"
+                    value={cpfNota} onChange={e => setCpfNota(e.target.value.replace(/[^\d.-]/g, ''))} />
                 </div>
               )}
 
