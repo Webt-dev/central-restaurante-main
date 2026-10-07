@@ -58,12 +58,39 @@ npm start
      `subscription_authorized_payment` — o servidor trata os dois);
    - se a assinatura aceita **Pix Automático** ou só cartão (a documentação lista Pix entre os
      meios das assinaturas, sem detalhar). Se não aceitar, Pix fica para o pagamento manual.
-5. **NFS-e da mensalidade:** o Mercado Pago **não emite nota fiscal**. Emita pelo Emissor
-   Nacional da NFS-e (obrigatório para ME/EPP do Simples) ou integre uma API de NFS-e a este
-   servidor, disparada no pagamento aprovado. Confirme item da LC 116 e ISS com o contador.
+5. **NFS-e da mensalidade:** o Mercado Pago não emite nota; este servidor emite sozinho pela
+   **Focus NFe** (ver seção abaixo).
 6. **Lembretes de cobrança** (D-3, D+1, D+3, D+5, D+7): o Mercado Pago não tem régua de
    WhatsApp/e-mail como alguns gateways; a central já mostra os avisos na tela. Lembretes por
    e-mail/WhatsApp ficam como melhoria futura deste servidor.
+
+## NFS-e automática (Focus NFe)
+
+Cada pagamento aprovado (Mercado Pago ou manual com valor > 0) gera uma NFS-e Nacional da
+mensalidade, com o cliente como tomador (CNPJ/CPF do campo `document`). A nota não atrasa a
+liberação da licença: vai para uma fila, é enviada à Focus e uma rotina consulta a cada 2 minutos
+até ficar **AUTORIZADA** ou **ERRO**.
+
+1. Crie a conta na Focus NFe, cadastre a nossa empresa e envie o **certificado A1** dela no painel.
+2. Com o contador, defina o **código de tributação nacional** do serviço (6 dígitos), a opção do
+   Simples e confira se o município já está no padrão nacional.
+3. Configure as variáveis e comece em `NFSE_AMBIENTE=homologacao`:
+
+| Variável | Uso |
+| :--- | :--- |
+| `NFSE_FOCUS_TOKEN` | Token da empresa no painel da Focus (sem ele, não emite nota) |
+| `NFSE_AMBIENTE` | `homologacao` (padrão) ou `producao` |
+| `NFSE_CNPJ_PRESTADOR` | CNPJ da nossa empresa |
+| `NFSE_CODIGO_MUNICIPIO` | Código IBGE (7 dígitos) do município da empresa |
+| `NFSE_CODIGO_TRIBUTACAO` | Código de tributação nacional do serviço (6 dígitos) |
+| `NFSE_OPCAO_SIMPLES` | 1 não optante, 2 MEI, 3 ME/EPP (padrão 3) |
+| `NFSE_TRIBUTACAO_ISS` | Padrão 1 (operação tributável) |
+| `NFSE_SERIE` / `NFSE_DESCRICAO` | Série da DPS e texto do serviço na nota |
+
+- Nota com **ERRO**: corrija o cadastro e use `POST /admin/invoices/:id/retry` (gera nova
+  referência e novo número de DPS).
+- Pagamento estornado com nota autorizada: a nota fica **CANCELAR** — cancele no painel da Focus
+  ou no Emissor Nacional (o cancelamento automático ainda não foi implementado).
 
 ## API administrativa (cabeçalho `x-api-key`)
 
@@ -76,6 +103,8 @@ npm start
 | `POST /admin/clients/:id/payments` | Pagamento fora do gateway: `{ amount, months, due_date?, note }` |
 | `POST /admin/clients/:id/activation-code` | Gera novo código de ativação |
 | `DELETE /admin/clients/:id/devices/:hw` | Libera a vaga de um computador (troca de máquina) |
+| `GET /admin/invoices?status=` | NFS-e das mensalidades (PENDENTE, PROCESSANDO, AUTORIZADA, ERRO, CANCELAR) |
+| `POST /admin/invoices/:id/retry` | Reenvia uma NFS-e com erro ou presa em processamento |
 
 Rotas públicas: `POST /v1/activate`, `GET /v1/licenses/:clientId?hw=` (CORS liberado — usada
 pelo celular do administrador quando a central está sem internet), `GET /health`.

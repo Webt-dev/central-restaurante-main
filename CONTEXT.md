@@ -65,8 +65,10 @@ reenvio, cancelamento em 30 min, CPF na nota, tela Notas fiscais, motor de Simul
 - Publicar o servidor de licenças (hospedagem + domínio HTTPS) e gerar a chave de produção.
 - Mercado Pago: criar aplicação, configurar webhook (Pagamentos + Planos e assinaturas) e testar
   no sandbox: tópicos recebidos nas faturas e se a assinatura aceita Pix Automático.
-- **NFS-e da mensalidade:** o Mercado Pago não emite nota. Emitir pelo Emissor Nacional ou
-  integrar uma API de NFS-e ao servidor de licenças (disparada no pagamento aprovado).
+- **NFS-e da mensalidade (implementada via Focus NFe, decisão do usuário):** cada pagamento aprovado
+  gera NFS-e Nacional automática (fila + consulta periódica, reenvio, estorno marca CANCELAR).
+  Falta: conta na Focus com o A1 da empresa, código de tributação nacional definido pelo
+  contador, teste em homologação, e cancelamento automático no estorno (hoje manual).
 - Lembretes D-3/D+1/D+3/D+5/D+7 por e-mail/WhatsApp: o MP não tem régua; hoje só os avisos na
   tela da central. Melhoria futura do servidor de licenças.
 

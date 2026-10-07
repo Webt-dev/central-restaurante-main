@@ -7,6 +7,7 @@ import {
   addDays, checkCode, getClient, hashCode, issueToken, listClients, newActivationCode, recordPayment, refundPayment, todayBrt
 } from './licenses.js';
 import { MercadoPagoApi, MpPayment, verifyMercadoPagoSignature } from './mercadopago.js';
+import { NfseConfig, enqueueInvoice, ensureNfseSchema, flagInvoiceForCancellation, processInvoices } from './nfse.js';
 
 export interface AppConfig {
   db: Db;
@@ -20,6 +21,8 @@ export interface AppConfig {
     /** Para onde o cliente volta depois de autorizar a assinatura. */
     backUrl: string;
   };
+  /** NFS-e automática da mensalidade (opcional). */
+  nfse?: NfseConfig;
 }
 
 function safeEqual(a: string | undefined, b: string | undefined): boolean {
@@ -47,7 +50,15 @@ const hwSchema = z.string().regex(/^[a-f0-9]{16,64}$/i, 'Identificação da máq
 
 export function createApp(cfg: AppConfig) {
   const { db, privateKey } = cfg;
+  ensureNfseSchema(db);
   const app = express();
+
+  /** Depois de um pagamento novo: gera a NFS-e (se configurada) sem segurar a resposta. */
+  function afterPayment(gatewayPaymentId: string, created: boolean): void {
+    if (!created || !cfg.nfse) return;
+    enqueueInvoice(db, cfg.nfse, gatewayPaymentId);
+    void processInvoices(db, cfg.nfse).catch(err => console.error('NFS-e:', err));
+  }
   app.disable('x-powered-by');
   app.use(express.json({ limit: '256kb' }));
   app.use((req, res, next) => {
@@ -129,6 +140,7 @@ export function createApp(cfg: AppConfig) {
     const payment = await api.getPayment(paymentId);
     const status = String(payment.status);
     if (status === 'refunded' || status === 'charged_back' || status === 'cancelled') {
+      flagInvoiceForCancellation(db, String(payment.id));
       return { refunded: refundPayment(db, String(payment.id)) };
     }
     if (status !== 'approved') return { ignored: true, status };
@@ -138,13 +150,15 @@ export function createApp(cfg: AppConfig) {
       console.warn(`Webhook Mercado Pago: pagamento ${payment.id} sem cliente correspondente.`);
       return { ignored: true, reason: 'cliente não encontrado' };
     }
-    return recordPayment(db, {
+    const result = recordPayment(db, {
       clientId,
       gateway: 'mercadopago',
       gatewayPaymentId: String(payment.id),
       amount: Number(payment.transaction_amount) || 0,
       paidDate: brtDate(payment.date_approved ?? payment.date_created)
     });
+    afterPayment(String(payment.id), result.created);
+    return result;
   }
 
   /**
@@ -262,17 +276,20 @@ export function createApp(cfg: AppConfig) {
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Dados inválidos.' });
     const p = parsed.data;
+    const gatewayPaymentId = `manual_${randomBytes(8).toString('hex')}`;
     // Sem data: mesma regra de ciclo dos pagamentos do Mercado Pago (pago hoje).
-    res.status(201).json(recordPayment(db, {
+    const result = recordPayment(db, {
       clientId: client.id,
       gateway: 'manual',
-      gatewayPaymentId: `manual_${randomBytes(8).toString('hex')}`,
+      gatewayPaymentId,
       amount: p.amount,
       dueDate: p.due_date,
       paidDate: todayBrt(),
       months: p.months,
       note: p.note
-    }));
+    });
+    afterPayment(gatewayPaymentId, result.created);
+    res.status(201).json(result);
   });
 
   /**
@@ -300,6 +317,46 @@ export function createApp(cfg: AppConfig) {
       });
       db.prepare('UPDATE clients SET mp_preapproval_id = ? WHERE id = ?').run(pre.id, client.id);
       res.status(201).json({ preapproval_id: pre.id, link: pre.init_point });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /** Notas fiscais (NFS-e) das mensalidades. ?status=ERRO|CANCELAR|... para filtrar. */
+  admin.get('/invoices', (req, res) => {
+    const status = typeof req.query.status === 'string' ? req.query.status : null;
+    const rows = db.prepare(`
+      SELECT i.*, c.name as client_name FROM invoices i JOIN clients c ON c.id = i.client_id
+      ${status ? 'WHERE i.status = ?' : ''} ORDER BY i.id DESC LIMIT 200
+    `).all(...(status ? [status] : []));
+    res.json(rows);
+  });
+
+  /**
+   * Reenvia uma nota com erro (depois de corrigir o cadastro na Focus, por
+   * exemplo). Gera nova referência e novo número de DPS; consultas presas em
+   * processamento só voltam a ser consultadas.
+   */
+  admin.post('/invoices/:id/retry', async (req, res, next) => {
+    try {
+      if (!cfg.nfse) return res.status(503).json({ error: 'NFS-e não configurada.' });
+      const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(Number(req.params.id)) as any;
+      if (!inv) return res.status(404).json({ error: 'Nota não encontrada.' });
+      if (inv.status === 'ERRO') {
+        const serie = cfg.nfse.serieDps;
+        db.transaction(() => {
+          const seq = db.prepare('SELECT ultimo FROM nfse_sequence WHERE serie = ?').get(serie) as { ultimo: number };
+          db.prepare('UPDATE nfse_sequence SET ultimo = ? WHERE serie = ?').run(seq.ultimo + 1, serie);
+          db.prepare("UPDATE invoices SET status = 'PENDENTE', ref = ?, numero_dps = ?, tentativas = 0, erro = NULL WHERE id = ?")
+            .run(`mensalidade-${inv.payment_id}-r${Date.now()}`, seq.ultimo + 1, inv.id);
+        })();
+      } else if (inv.status === 'PROCESSANDO' || inv.status === 'PENDENTE') {
+        db.prepare('UPDATE invoices SET tentativas = 0 WHERE id = ?').run(inv.id);
+      } else {
+        return res.status(409).json({ error: 'Só notas com erro ou em processamento podem ser reenviadas.' });
+      }
+      await processInvoices(db, cfg.nfse);
+      res.json(db.prepare('SELECT * FROM invoices WHERE id = ?').get(inv.id));
     } catch (err) {
       next(err);
     }
