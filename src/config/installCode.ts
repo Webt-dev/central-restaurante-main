@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import { env } from './env.js';
 
@@ -44,6 +45,22 @@ export function getInstallCode(): string {
 
 export function installCodeFile(): string {
   return CODE_FILE;
+}
+
+/**
+ * O código só é exigido de quem NÃO está neste computador. Quem abre o sistema no próprio
+ * computador do estabelecimento (janela do app, localhost ou o IP da própria máquina) já
+ * tem acesso físico a ele, então não precisa digitar nada; um celular ou notebook na rede
+ * precisa do código. INSTALL_CODE_ALWAYS=1 exige em qualquer caso (testes ou quem preferir).
+ * O servidor não confia em X-Forwarded-For, então o IP vem do próprio socket e não é forjável.
+ */
+export function installCodeRequired(ip: string | undefined): boolean {
+  if (process.env.INSTALL_CODE_ALWAYS === '1') return true;
+  if (!ip) return true;
+  const addr = ip.replace(/^::ffff:/, '');
+  if (addr === '127.0.0.1' || addr === '::1') return false;
+  const own = Object.values(os.networkInterfaces()).flat().some(i => i && i.address === addr);
+  return !own;
 }
 
 /** Apaga o código depois que o sistema foi configurado. */

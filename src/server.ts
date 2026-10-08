@@ -115,11 +115,12 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`   Ou digite no celular: ${directAppUrl}`);
   console.log('======================================================================\n');
   
-  // Primeira configuração: o dono precisa deste código para criar o ADMIN (ver config/installCode.ts).
+  // Primeira configuração por outro aparelho da rede exige este código (ver config/installCode.ts).
   if (AuthService.needsSetup()) {
     console.log('======================================================================');
     console.log(`🔑 CÓDIGO DE INSTALAÇÃO: ${getInstallCode()}`);
-    console.log('   Digite-o na tela de primeira configuração para criar o administrador.');
+    console.log('   Neste computador a configuração inicial não pede código.');
+    console.log('   Se for configurar por outro aparelho (celular/notebook), digite-o na tela inicial.');
     console.log(`   (Também está salvo em ${installCodeFile()} e some após a configuração.)`);
     console.log('======================================================================');
     console.log('');

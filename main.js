@@ -1,7 +1,6 @@
 import { app, BrowserWindow, shell, utilityProcess, dialog } from 'electron';
 import path from 'node:path';
 import http from 'node:http';
-import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -112,30 +111,6 @@ function createWindow() {
   });
 }
 
-/**
- * Na primeira configuração o servidor exige um código de instalação para criar o
- * ADMIN (evita que alguém da rede Wi-Fi crie o administrador antes do dono). O
- * console do servidor não aparece para o dono, então mostramos o código aqui.
- */
-function mostrarCodigoDeInstalacao() {
-  try {
-    const arquivo = path.join(app.getPath('userData'), '.install-code');
-    if (!fs.existsSync(arquivo)) return;
-    const codigo = fs.readFileSync(arquivo, 'utf8').trim();
-    if (!codigo) return;
-    dialog.showMessageBox(mainWindow ?? undefined, {
-      type: 'info',
-      title: 'Central Restaurante',
-      message: 'Código de instalação',
-      detail: `Digite este código na tela de configuração inicial:
-
-${codigo}`
-    });
-  } catch {
-    // sem o arquivo, o dono ainda consegue ler o código nos logs.
-  }
-}
-
 app.whenReady().then(async () => {
   startServer();
   try {
@@ -144,7 +119,6 @@ app.whenReady().then(async () => {
     dialog.showErrorBox('Central Restaurante', `Não foi possível iniciar o servidor: ${err.message}`);
   }
   createWindow();
-  mostrarCodigoDeInstalacao();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

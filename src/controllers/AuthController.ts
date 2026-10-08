@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AuthService } from '../services/AuthService.js';
 import { AuthenticatedRequest } from '../middlewares/authMiddleware.js';
 import { auditRequest, audit } from '../services/AuditService.js';
-import { checkInstallCode, discardInstallCode } from '../config/installCode.js';
+import { checkInstallCode, discardInstallCode, installCodeRequired } from '../config/installCode.js';
 import { HttpError } from '../utils/httpError.js';
 import { disconnectUser } from '../sockets/socketManager.js';
 
@@ -67,8 +67,9 @@ export class AuthController {
   }
 
   static setupStatus(req: AuthenticatedRequest, res: Response) {
-    // needsInstallCode avisa a tela de que deve pedir o código mostrado no servidor.
-    res.json({ needsSetup: AuthService.needsSetup(), needsInstallCode: AuthService.needsSetup() });
+    // needsInstallCode avisa a tela de que deve pedir o código: só para quem não está neste computador.
+    const needsSetup = AuthService.needsSetup();
+    res.json({ needsSetup, needsInstallCode: needsSetup && installCodeRequired(req.ip) });
   }
 
   static async setup(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -76,10 +77,12 @@ export class AuthController {
       const { name, username, password, installCode } = req.body;
       // Já configurado: 409 como antes, sem mexer no contador de tentativas do código.
       if (!AuthService.needsSetup()) throw new HttpError(409, 'O sistema já foi configurado.');
-      const check = checkInstallCode(installCode, req.ip ?? '');
-      if (check === 'locked') throw new HttpError(429, 'Muitas tentativas com código errado. Aguarde 15 minutos.', 'INSTALL_CODE_LOCKED');
-      if (check !== 'ok') {
-        throw new HttpError(403, 'Código de instalação inválido. Ele aparece na tela/log do servidor no primeiro início.', 'INSTALL_CODE_INVALID');
+      if (installCodeRequired(req.ip)) {
+        const check = checkInstallCode(installCode, req.ip ?? '');
+        if (check === 'locked') throw new HttpError(429, 'Muitas tentativas com código errado. Aguarde 15 minutos.', 'INSTALL_CODE_LOCKED');
+        if (check !== 'ok') {
+          throw new HttpError(403, 'Código de instalação inválido. Ele aparece no console do servidor ou na pasta de dados do computador principal.', 'INSTALL_CODE_INVALID');
+        }
       }
       const result = await AuthService.setup(name, username, password, req.ip ?? '');
       discardInstallCode();

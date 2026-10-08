@@ -29,3 +29,9 @@ license-server/node_modules/
 
 # Dados da execução local de demonstração
 .demo-data/
+
+# Código de instalação do primeiro boot (apagado após criar o ADMIN)
+.install-code
+
+# Estado local da licença (relógio, segredo do aparelho, avaliação pendente)
+.license-*

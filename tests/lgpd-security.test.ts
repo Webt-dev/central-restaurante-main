@@ -93,6 +93,16 @@ test('setup exige o código de instalação (403 sem ele, 201 com ele, 409 depoi
   try {
     const user = { name: 'Dono', username: 'dono', password: 'senha-forte-1' };
     const code = installCode.getInstallCode();
+    const port = (server.address() as { port: number }).port;
+    const statusUrl = `http://127.0.0.1:${port}/api/auth/setup-status`;
+
+    // No próprio computador (localhost) a tela não pede o código.
+    delete process.env.INSTALL_CODE_ALWAYS;
+    assert.deepEqual(await (await fetch(statusUrl)).json(), { needsSetup: true, needsInstallCode: false });
+
+    // Daqui em diante simulamos um aparelho da rede: o código é obrigatório.
+    process.env.INSTALL_CODE_ALWAYS = '1';
+    assert.equal((await (await fetch(statusUrl)).json()).needsInstallCode, true);
     assert.ok(fs.existsSync(installCode.installCodeFile()), 'código gravado na pasta de dados');
 
     assert.equal((await post(server, user)).status, 403);
@@ -105,8 +115,21 @@ test('setup exige o código de instalação (403 sem ele, 201 com ele, 409 depoi
     assert.ok(!fs.existsSync(installCode.installCodeFile()), 'código apagado após o setup');
     assert.equal((await post(server, { ...user, username: 'outro', installCode: code })).status, 409);
   } finally {
+    delete process.env.INSTALL_CODE_ALWAYS;
     server.close();
   }
+});
+
+test('installCodeRequired: dispensa no próprio computador, exige de aparelho da rede', () => {
+  delete process.env.INSTALL_CODE_ALWAYS;
+  assert.equal(installCode.installCodeRequired('127.0.0.1'), false);
+  assert.equal(installCode.installCodeRequired('::1'), false);
+  assert.equal(installCode.installCodeRequired('::ffff:127.0.0.1'), false);
+  assert.equal(installCode.installCodeRequired('203.0.113.50'), true);
+  assert.equal(installCode.installCodeRequired(undefined), true);
+  process.env.INSTALL_CODE_ALWAYS = '1';
+  assert.equal(installCode.installCodeRequired('127.0.0.1'), true);
+  delete process.env.INSTALL_CODE_ALWAYS;
 });
 
 test('código de instalação trava após 10 erros seguidos', () => {
