@@ -13,6 +13,14 @@ if (!fs.existsSync(dbDir)) {
 export const db: SqliteDatabase = new Database(env.DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+// Com WAL, synchronous=NORMAL é seguro contra corrupção (só pode perder a última
+// transação num corte de energia) e bem mais rápido que FULL.
+db.pragma('synchronous = NORMAL');
+// Em vez de falhar na hora com SQLITE_BUSY (backup/worker concorrente), espera até 5 s.
+db.pragma('busy_timeout = 5000');
+// Cache de páginas de ~16 MB (valor negativo = KiB) e temporários em memória.
+db.pragma('cache_size = -16000');
+db.pragma('temp_store = MEMORY');
 
 export function initDatabase(): void {
   checkIntegrity(db);

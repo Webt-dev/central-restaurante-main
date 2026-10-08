@@ -6,6 +6,7 @@ import { AdminRepository } from '../repositories/AdminRepository.js';
 import { emitEvent } from '../sockets/socketManager.js';
 import { auditRequest } from '../services/AuditService.js';
 import { db } from '../config/database.js';
+import lgpdRoutes from './lgpd.routes.js';
 import { createBackup, listBackups, BACKUP_DIR } from '../services/BackupService.js';
 
 const router = Router();
@@ -23,6 +24,9 @@ router.get('/settings', (req, res, next) => {
 });
 
 router.use(authorize(['ADMIN']));
+
+// LGPD: consulta e anonimização por CPF do titular.
+router.use('/lgpd', lgpdRoutes);
 
 function param(value: unknown): string {
   return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '');

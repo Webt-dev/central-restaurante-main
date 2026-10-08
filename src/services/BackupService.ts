@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Database } from 'better-sqlite3';
 import { env } from '../config/env.js';
+import { encryptFile, encryptionEnabled, ENCRYPTED_EXT } from './BackupCrypto.js';
 
 /**
  * Backup do banco SQLite.
@@ -11,6 +12,10 @@ import { env } from '../config/env.js';
  * - Antes de cada migração: cópia "pre-migracao-vN".
  * - BACKUP_MIRROR_DIR (opcional): uma segunda cópia em outra pasta/disco
  *   (pendrive, pasta sincronizada com a nuvem).
+ *
+ * Criptografia (opcional, BACKUP_ENCRYPT=1): o backup vira "*.sqlite.enc"
+ * (AES-256-GCM, ver BackupCrypto.ts) e o arquivo aberto é apagado. A cópia
+ * espelhada também sai criptografada.
  *
  * Copiar só o arquivo .sqlite com o WAL ativo gera backup corrompido; por
  * isso usamos a API de backup do SQLite / VACUUM INTO.
@@ -22,6 +27,7 @@ const SIX_HOURS = 6 * 60 * 60 * 1000;
 
 export interface BackupInfo {
   file: string;
+  encrypted: boolean;
   kind: 'daily' | 'weekly' | 'manual' | 'pre-migration';
   size: number;
   created_at: string;
@@ -47,14 +53,24 @@ function mirror(file: string): void {
   }
 }
 
+/** Se a criptografia estiver ligada, troca o arquivo aberto pelo .enc e devolve o caminho final. */
+function protect(file: string): string {
+  if (!encryptionEnabled()) return file;
+  const encrypted = file + ENCRYPTED_EXT;
+  encryptFile(file, encrypted);
+  fs.unlinkSync(file);
+  return encrypted;
+}
+
 /** Cópia síncrona e consistente (usada antes de migrar o esquema). */
 export function backupSync(db: Database, name: string): string {
   ensureDir(BACKUP_DIR);
   const target = path.join(BACKUP_DIR, `${name}.sqlite`);
-  if (fs.existsSync(target)) fs.unlinkSync(target);
+  for (const old of [target, target + ENCRYPTED_EXT]) if (fs.existsSync(old)) fs.unlinkSync(old);
   db.prepare('VACUUM INTO ?').run(target);
-  mirror(target);
-  return target;
+  const final = protect(target);
+  mirror(final);
+  return final;
 }
 
 export async function createBackup(db: Database, kind: 'daily' | 'manual' = 'manual'): Promise<string> {
@@ -62,15 +78,17 @@ export async function createBackup(db: Database, kind: 'daily' | 'manual' = 'man
   const stamp = kind === 'daily' ? today() : new Date().toISOString().replace(/[:.]/g, '-');
   const target = path.join(BACKUP_DIR, `${kind}-${stamp}.sqlite`);
   await db.backup(target);
-  mirror(target);
-  return target;
+  const final = protect(target);
+  mirror(final);
+  return final;
 }
 
 function rotate(): void {
   const files = fs.readdirSync(BACKUP_DIR).filter(f => f.startsWith('daily-')).sort();
   for (const f of files.slice(0, Math.max(0, files.length - KEEP_DAILY))) {
     const date = new Date(`${f.slice(6, 16)}T12:00:00`);
-    const weeklyName = `weekly-${f.slice(6, 16)}.sqlite`;
+    const ext = f.endsWith(ENCRYPTED_EXT) ? `.sqlite${ENCRYPTED_EXT}` : '.sqlite';
+    const weeklyName = `weekly-${f.slice(6, 16)}${ext}`;
     // O backup de domingo é promovido a semanal antes de sair da janela diária.
     if (date.getDay() === 0 && !fs.existsSync(path.join(BACKUP_DIR, weeklyName))) {
       fs.renameSync(path.join(BACKUP_DIR, f), path.join(BACKUP_DIR, weeklyName));
@@ -87,7 +105,9 @@ function rotate(): void {
 export async function runDailyBackup(db: Database): Promise<void> {
   try {
     ensureDir(BACKUP_DIR);
-    if (!fs.existsSync(path.join(BACKUP_DIR, `daily-${today()}.sqlite`))) {
+    const doneToday = [`daily-${today()}.sqlite`, `daily-${today()}.sqlite${ENCRYPTED_EXT}`]
+      .some(n => fs.existsSync(path.join(BACKUP_DIR, n)));
+    if (!doneToday) {
       const file = await createBackup(db, 'daily');
       console.log(`💾 Backup diário salvo em ${file}`);
     }
@@ -105,14 +125,14 @@ export function scheduleBackups(db: Database): void {
 export function listBackups(): BackupInfo[] {
   if (!fs.existsSync(BACKUP_DIR)) return [];
   return fs.readdirSync(BACKUP_DIR)
-    .filter(f => f.endsWith('.sqlite'))
+    .filter(f => f.endsWith('.sqlite') || f.endsWith(`.sqlite${ENCRYPTED_EXT}`))
     .map(f => {
       const stat = fs.statSync(path.join(BACKUP_DIR, f));
       const kind: BackupInfo['kind'] = f.startsWith('daily-') ? 'daily'
         : f.startsWith('weekly-') ? 'weekly'
         : f.startsWith('pre-migracao') ? 'pre-migration'
         : 'manual';
-      return { file: f, kind, size: stat.size, created_at: stat.mtime.toISOString() };
+      return { file: f, encrypted: f.endsWith(ENCRYPTED_EXT), kind, size: stat.size, created_at: stat.mtime.toISOString() };
     })
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }

@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { AuthService } from '../services/AuthService.js';
 import { AuthenticatedRequest } from '../middlewares/authMiddleware.js';
 import { auditRequest, audit } from '../services/AuditService.js';
+import { checkInstallCode, discardInstallCode } from '../config/installCode.js';
+import { HttpError } from '../utils/httpError.js';
 import { disconnectUser } from '../sockets/socketManager.js';
 
 const roleSchema = z.enum(['ADMIN', 'CASHIER', 'WAITER', 'KITCHEN']);
@@ -17,7 +19,9 @@ export const loginSchema = z.object({
 export const setupSchema = z.object({
   name: z.string().trim().min(2, 'Nome é obrigatório').max(80),
   username: usernameSchema,
-  password: z.string().min(1)
+  password: z.string().min(1),
+  // Código mostrado no console/log do servidor no primeiro boot (ver config/installCode.ts).
+  installCode: z.string().trim().max(40).optional()
 });
 
 export const createUserSchema = z.object({
@@ -63,13 +67,23 @@ export class AuthController {
   }
 
   static setupStatus(req: AuthenticatedRequest, res: Response) {
-    res.json({ needsSetup: AuthService.needsSetup() });
+    // needsInstallCode avisa a tela de que deve pedir o código mostrado no servidor.
+    res.json({ needsSetup: AuthService.needsSetup(), needsInstallCode: AuthService.needsSetup() });
   }
 
   static async setup(req: AuthenticatedRequest, res: Response, next: NextFunction) {
     try {
-      const { name, username, password } = req.body;
-      res.status(201).json(await AuthService.setup(name, username, password, req.ip ?? ''));
+      const { name, username, password, installCode } = req.body;
+      // Já configurado: 409 como antes, sem mexer no contador de tentativas do código.
+      if (!AuthService.needsSetup()) throw new HttpError(409, 'O sistema já foi configurado.');
+      const check = checkInstallCode(installCode, req.ip ?? '');
+      if (check === 'locked') throw new HttpError(429, 'Muitas tentativas com código errado. Aguarde 15 minutos.', 'INSTALL_CODE_LOCKED');
+      if (check !== 'ok') {
+        throw new HttpError(403, 'Código de instalação inválido. Ele aparece na tela/log do servidor no primeiro início.', 'INSTALL_CODE_INVALID');
+      }
+      const result = await AuthService.setup(name, username, password, req.ip ?? '');
+      discardInstallCode();
+      res.status(201).json(result);
     } catch (err) {
       next(err);
     }

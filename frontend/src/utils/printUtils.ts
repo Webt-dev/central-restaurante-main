@@ -1,6 +1,16 @@
 /**
  * Utilitário para envio de cupom/relatório diretamente para a impressora física ou diálogo de impressão.
  */
+/** Escapa HTML para o título não virar marcação (evita injeção via nome de cliente/produto). */
+function escapeHtml(text: string): string {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function printReceiptContent(content: string, docTitle: string = 'Cupom'): void {
   const printWindow = window.open('', '_blank', 'width=450,height=650');
   if (printWindow) {
@@ -9,7 +19,7 @@ export function printReceiptContent(content: string, docTitle: string = 'Cupom')
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>${docTitle}</title>
+          <title>${escapeHtml(docTitle)}</title>
           <style>
             @page {
               margin: 0;

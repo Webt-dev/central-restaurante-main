@@ -15,6 +15,8 @@ export const LoginScreen: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [installCode, setInstallCode] = useState('');
+  const [needsCode, setNeedsCode] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -25,7 +27,8 @@ export const LoginScreen: React.FC = () => {
   async function checkSetup() {
     setMode('loading');
     try {
-      const { needsSetup } = await api.setupStatus();
+      const { needsSetup, needsInstallCode } = await api.setupStatus();
+      setNeedsCode(!!needsInstallCode);
       setMode(needsSetup ? 'setup' : 'login');
     } catch {
       setMode('offline');
@@ -53,7 +56,7 @@ export const LoginScreen: React.FC = () => {
     if (password !== confirm) return setError('A senha e a confirmação não são iguais.');
     setBusy(true);
     try {
-      await api.setup(name.trim(), username.trim(), password);
+      await api.setup(name.trim(), username.trim(), password, installCode.trim() || undefined);
     } catch (err: any) {
       setError(err.message || 'Não foi possível concluir a configuração.');
     } finally {
@@ -114,9 +117,17 @@ export const LoginScreen: React.FC = () => {
 
         {mode === 'setup' && (
           <form onSubmit={handleSetup} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {needsCode && (
+              <div className="field">
+                <label className="label" htmlFor="setup-code">Código de instalação</label>
+                <input id="setup-code" type="text" autoCapitalize="characters" autoComplete="off" value={installCode}
+                  onChange={e => setInstallCode(e.target.value)} className="input" placeholder="XXXX-XXXX-XXXX" required autoFocus />
+                <p className="hint">Aparece na janela do computador principal logo após a instalação. Protege contra alguém da rede criar o administrador antes de você.</p>
+              </div>
+            )}
             <div className="field">
               <label className="label" htmlFor="setup-name">Seu nome</label>
-              <input id="setup-name" type="text" value={name} onChange={e => setName(e.target.value)} className="input" required autoFocus />
+              <input id="setup-name" type="text" value={name} onChange={e => setName(e.target.value)} className="input" required autoFocus={!needsCode} />
             </div>
             <div className="field">
               <label className="label" htmlFor="setup-user">Usuário</label>

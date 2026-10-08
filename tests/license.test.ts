@@ -248,7 +248,12 @@ test('pagamento manual pelo admin e módulo fiscal liberado pelo plano', async (
 });
 
 test('renovação pelo celular: rota de leitura aceita CORS e exige máquina ativada', async () => {
-  const ok = await fetch(`${URL_BASE}/v1/licenses/${clientId}?hw=${HW}`);
+  // Sem o segredo do dispositivo (entregue na ativação) a licença não sai.
+  const denied = await fetch(`${URL_BASE}/v1/licenses/${clientId}?hw=${HW}`);
+  assert.equal(denied.status, 401);
+  const secret = License.getDeviceSecret(clientId);
+  assert.ok(secret, 'a central guardou o segredo recebido na ativação');
+  const ok = await fetch(`${URL_BASE}/v1/licenses/${clientId}?hw=${HW}`, { headers: { 'x-device-secret': secret } });
   assert.equal(ok.headers.get('access-control-allow-origin'), '*');
   const { token } = await ok.json() as { token: string };
   assert.equal(License.installToken(token).state, 'ACTIVE');

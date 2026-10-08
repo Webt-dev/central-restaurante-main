@@ -11,13 +11,21 @@
         var t = 'system';
         try { t = localStorage.getItem('cr.theme') || 'system'; } catch (e) {}
         document.documentElement.setAttribute('data-theme', t);
+        // Modo leve: decide antes da primeira pintura para não animar nada em aparelho fraco.
+        var p = 'auto';
+        try { p = localStorage.getItem('cr.perf') || 'auto'; } catch (e) {}
+        var lite = p === 'lite';
+        if (p === 'auto') {
+          var nav = navigator;
+          lite = (nav.deviceMemory && nav.deviceMemory <= 4) ||
+                 (nav.hardwareConcurrency && nav.hardwareConcurrency <= 2) ||
+                 (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        }
+        if (lite) document.documentElement.setAttribute('data-perf', 'lite');
       })();
     </script>
     <title>Central Restaurante - Sistema Multi-telas</title>
-    <!-- Google Fonts: Plus Jakarta Sans & Inter -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- Fonte Inter é empacotada no próprio sistema (src/fonts.css): funciona sem internet. -->
   </head>
   <body>
     <div id="root"></div>

@@ -3,6 +3,7 @@ import { Server as HTTPServer } from 'node:http';
 import { resolveSession } from '../middlewares/authMiddleware.js';
 import type { UserRole } from '../models/types.js';
 import { env } from '../config/env.js';
+import { maskPiiDeep } from '../utils/pii.js';
 
 export interface ConnectedDevice {
   id: string;
@@ -121,9 +122,32 @@ export function emitEvent(event: string, data?: any): void {
   }
 }
 
+/**
+ * Minimização de dados nos eventos em tempo real (LGPD): as telas só usam
+ * estes eventos como aviso para recarregar a lista, então o conteúdo vai
+ * enxuto. Saem identificadores internos que ninguém precisa ver (garçom,
+ * sessão de caixa, id de sincronização offline) e qualquer CPF/e-mail que
+ * alguém tenha digitado em observações é mascarado.
+ */
+const INTERNAL_KEYS = new Set(['waiter_id', 'offline_sync_id', 'cashier_session_id']);
+
+export function sanitizeForBroadcast<T>(data: T): T {
+  const strip = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(strip);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(Object.entries(v as Record<string, unknown>)
+        .filter(([k]) => !INTERNAL_KEYS.has(k))
+        .map(([k, val]) => [k, strip(val)]));
+    }
+    return v;
+  };
+  return maskPiiDeep(strip(data)) as T;
+}
+
 // Métodos utilitários para disparo de eventos em tempo real
 export function notifyOrderCreated(order: any): void {
   if (io) {
+    order = sanitizeForBroadcast(order);
     io.to('kitchen').emit('order:created', order);
     io.to('cashier').emit('order:created', order);
   }
@@ -131,6 +155,7 @@ export function notifyOrderCreated(order: any): void {
 
 export function notifyOrderStatusChanged(order: any): void {
   if (io) {
+    order = sanitizeForBroadcast(order);
     io.to('kitchen').emit('order:status_changed', order);
     io.to('waiter').emit('order:status_changed', order);
     io.to('cashier').emit('order:status_changed', order);
@@ -146,6 +171,7 @@ export function notifyTableStatusChanged(table: any): void {
 
 export function notifyPaymentProcessed(payment: any): void {
   if (io) {
+    payment = sanitizeForBroadcast(payment);
     io.to('cashier').emit('payment:processed', payment);
     io.to('waiter').emit('payment:processed', payment);
   }

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from './api';
 import { socket } from './socket';
 import type { RestaurantSettings } from '../types';
-import { applyTheme } from './theme';
+import { applyTheme, applyPerf, getStoredPerf } from './theme';
 
 /**
  * Fonte única da verdade para a taxa de serviço (gorjeta) no frontend.
@@ -29,6 +29,8 @@ const listeners = new Set<(s: RestaurantSettings) => void>();
 function notify(next: RestaurantSettings) {
   cache = next;
   applyTheme(next.theme);
+  // Modo leve: por ora é preferência deste aparelho (o servidor ainda não guarda esse campo).
+  applyPerf(getStoredPerf());
   listeners.forEach(fn => fn(next));
 }
 

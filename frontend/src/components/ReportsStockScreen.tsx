@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import QRCode from 'qrcode';
 import type { DailyReport, InventoryItem, SystemInfo, ConnectedDevice } from '../types';
 import { api } from '../services/api';
 import { socket } from '../services/socket';
@@ -77,9 +76,10 @@ export const ReportsStockScreen: React.FC = () => {
       setSystemInfo(sys);
       setConnectedDevices(sys.connected_devices || []);
       const frontendTargetUrl = sys.frontend_url || `http://${window.location.hostname}:3000`;
-      QRCode.toDataURL(frontendTargetUrl, { width: 260, margin: 2, color: { dark: '#1B2430', light: '#FFFFFF' } }, (err, url) => {
-        if (!err && url) setQrCodeDataUrl(url);
-      });
+      // Import dinâmico: a biblioteca de QR só baixa quando alguém abre "conectar aparelho".
+      const { default: QRCode } = await import('qrcode');
+      const url = await QRCode.toDataURL(frontendTargetUrl, { width: 260, margin: 2, color: { dark: '#1B2430', light: '#FFFFFF' } });
+      if (url) setQrCodeDataUrl(url);
     } catch (err) {
       console.error('Erro ao obter informações do sistema:', err);
     }

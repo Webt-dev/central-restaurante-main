@@ -4,46 +4,46 @@
    ========================================================================= */
 
 :root {
-  --bg-main: #E8ECF1;
+  --bg-main: #D5DBE3;
   --bg-card: #FFFFFF;
-  --bg-subtle: #F1F4F8;
-  --bg-hover: #E2E7EE;
+  --bg-subtle: #E4E9EF;
+  --bg-hover: #CDD4DE;
 
-  --text-primary: #111827;
-  --text-secondary: #374151;
-  /* Modo claro reforçado: o fundo da página é mais escuro que os cartões e as
+  --text-primary: #0A101C;
+  --text-secondary: #1B2433;
+  /* Modo claro reforçado v2 (telas antigas/lavadas): o fundo da página é mais escuro que os cartões e as
      bordas/textos secundários passam com folga do mínimo WCAG AA. */
-  --text-muted: #4B5563;
-  --text-placeholder: #6B7280;
+  --text-muted: #364152;
+  --text-placeholder: #4A5565;
 
-  --border: #C9D1DB;
-  --border-strong: #94A0AE;
-  --border-light: #D5DCE4;
+  --border: #A9B4C1;
+  --border-strong: #77838F;
+  --border-light: #BEC7D2;
   /* Borda de botões e campos: precisa de 3:1 contra o fundo para ser vista. */
-  --border-control: #6B7787;
+  --border-control: #566272;
 
-  --brand: #2563EB;
-  --brand-hover: #1D4ED8;
-  --brand-soft: #DCE7FD;
-  --brand-border: #B5CCF8;
+  --brand: #1D4FD7;
+  --brand-hover: #1640B0;
+  --brand-soft: #C9DAFA;
+  --brand-border: #88A9EC;
   /* Texto sobre botões coloridos (primário, sucesso, perigo). */
   --on-accent: #FFFFFF;
 
   --green: #11693F;
-  --green-soft: #DCF3E6;
-  --green-border: #A9DBBF;
+  --green-soft: #C6EAD6;
+  --green-border: #7FC29F;
   --amber: #8A5300;
-  --amber-soft: #FCEDD3;
-  --amber-border: #EBCB93;
-  --amber-soft-hover: #F9E2BA;
+  --amber-soft: #F7E0B5;
+  --amber-border: #D9B064;
+  --amber-soft-hover: #F2D49C;
   --red: #B4231F;
   --red-hover: #971B18;
-  --red-soft: #FBE3E1;
-  --red-border: #EDB7B3;
-  --red-soft-hover: #F7D2CF;
+  --red-soft: #F8D3D0;
+  --red-border: #DE938D;
+  --red-soft-hover: #F2C0BC;
 
-  --scrollbar: #A3ADBA;
-  --scrollbar-hover: #8792A1;
+  --scrollbar: #8D99A8;
+  --scrollbar-hover: #6F7B8B;
   --overlay: rgba(27, 36, 48, 0.45);
 
   --accent-blue: var(--brand);
@@ -65,12 +65,19 @@
   --radius-lg: 12px;
   --radius-full: 999px;
 
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.10);
-  --shadow-md: 0 2px 4px rgba(16, 24, 40, 0.08), 0 4px 12px rgba(16, 24, 40, 0.10);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.14), 0 1px 3px rgba(16, 24, 40, 0.16);
+  --shadow-md: 0 2px 4px rgba(16, 24, 40, 0.14), 0 4px 12px rgba(16, 24, 40, 0.16);
   --shadow-lg: 0 8px 28px rgba(27, 36, 48, 0.14);
 
-  --font-heading: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Courier New', Courier, monospace;
+
+  /* "Papel" do cupom: continua claro nos dois temas, pois imita o papel impresso. */
+  --receipt-bg: #FBFBFC;
+  --receipt-text: #1B2430;
+  /* Borda de impressão: papel é sempre branco, então não segue o tema. */
+  --print-border: #CCCCCC;
 
   --mobile-nav-h: 60px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -1092,12 +1099,12 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .empty-state { text-align: center; padding: 40px 16px; color: var(--text-muted); font-size: 0.88rem; }
 
 .receipt-preview {
-  background: #FBFBFC;
-  color: #1B2430;
+  background: var(--receipt-bg);
+  color: var(--receipt-text);
   border: 1px solid var(--border);
   padding: 14px;
   border-radius: var(--radius-md);
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 0.76rem;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -1177,7 +1184,7 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .fiscal-rejeitado { background: var(--red-soft); color: var(--red); }
 .fiscal-cancelado { background: var(--bg-subtle); color: var(--text-secondary); }
 
-.chave-acesso { font-family: 'Courier New', monospace; font-size: 0.74rem; word-break: break-all; color: var(--text-secondary); }
+.chave-acesso { font-family: var(--font-mono); font-size: 0.74rem; word-break: break-all; color: var(--text-secondary); }
 
 .aviso-homologacao {
   display: flex;
@@ -1530,7 +1537,7 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 @media print {
   .app-header, .mobile-nav, .toolbar, .btn, .cart-bar, .step-bar { display: none !important; }
   .page { padding: 0; }
-  .card { box-shadow: none; border: 1px solid #CCC; }
+  .card { box-shadow: none; border: 1px solid var(--print-border); }
 }
 
 /* =========================================================================
@@ -1596,3 +1603,58 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 /* Faixa de aviso da licença, logo abaixo do menu */
 .license-banner { max-width: 1280px; margin: 12px auto 0; padding: 0 16px; }
 .license-banner .alert { margin: 0; align-items: center; flex-wrap: wrap; }
+
+/* =========================================================================
+   CARREGANDO (fallback do carregamento por tela)
+   ========================================================================= */
+.screen-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 16px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* =========================================================================
+   DESEMPENHO: MODO LEVE e "reduzir movimento"
+   Vale quando <html data-perf="lite"> (escolha Leve, ou Automático em aparelho
+   fraco) e também quando o sistema do aparelho pede menos movimento.
+   Mantém cores, cantos e fontes: a interface continua a mesma, só sem custo
+   de animação/sombra. Os anéis de foco e o indicador de seleção (box-shadow
+   inset) NÃO são removidos, porque são necessários para acessibilidade.
+   ========================================================================= */
+:root[data-perf="lite"] {
+  /* Sombras viram "nada"; a separação visual vem da borda de 1px abaixo. */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+}
+
+:root[data-perf="lite"] *,
+:root[data-perf="lite"] *::before,
+:root[data-perf="lite"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+/* Elementos que dependiam só da sombra para se destacar ganham borda de 1px. */
+:root[data-perf="lite"] .modal,
+:root[data-perf="lite"] .cart-bar {
+  border: 1px solid var(--border-strong);
+}
+:root[data-perf="lite"] .mobile-nav { border-top: 1px solid var(--border-strong); }
+
+/* Spinner (ícone girando) vira o texto "Carregando...": nada gira na tela. */
+:root[data-perf="lite"] .spin { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root *, :root *::before, :root *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  :root .spin { display: none !important; }
+}

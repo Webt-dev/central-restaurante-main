@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { format } from 'node:util';
 import { env } from '../config/env.js';
+import { maskPii } from './pii.js';
 
 /**
  * Log em arquivo, sem dependências.
@@ -20,8 +21,10 @@ const KEEP_DAYS = 14;
 const ANSI = /\x1b\[[0-9;]*m/g;
 const SECRETS = /(Bearer\s+)[\w.-]+|("?(?:password|senha|pin|token|csc)"?\s*[:=]\s*)"?[^",\s}]+"?/gi;
 
-function sanitize(line: string): string {
-  return line.replace(ANSI, '').replace(SECRETS, (_m, bearer, key) => (bearer ? `${bearer}***` : `${key}***`));
+// Além de segredos, CPF e e-mail (dados pessoais - LGPD) nunca vão inteiros para o arquivo de log.
+export function sanitize(line: string): string {
+  const semSegredos = line.replace(ANSI, '').replace(SECRETS, (_m, bearer, key) => (bearer ? `${bearer}***` : `${key}***`));
+  return maskPii(semSegredos);
 }
 
 function today(): string {

@@ -1,18 +1,32 @@
-import { useState, useEffect, Component, type ErrorInfo, type ReactNode } from 'react';
+import { lazy, Suspense, useState, useEffect, Component, type ErrorInfo, type ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Header } from './components/Header';
-import { WaiterScreen } from './components/WaiterScreen';
-import { KitchenScreen } from './components/KitchenScreen';
-import { CashierScreen } from './components/CashierScreen';
-import { ReportsStockScreen } from './components/ReportsStockScreen';
-import { AdminScreen } from './components/AdminScreen';
 import { LoginScreen } from './components/LoginScreen';
 import { ChangePasswordScreen } from './components/ChangePasswordScreen';
-import { FiscalScreen } from './components/FiscalScreen';
 import { LicenseBanner } from './components/LicenseBanner';
+import { RefreshCw } from 'lucide-react';
 import { socket } from './services/socket';
 import { loadSettings } from './services/settings';
 import { useSession, canAccess, homeFor, type UserRole } from './services/session';
+
+// Cada tela vira um pedacinho separado do código: o celular do garçom não baixa o painel
+// do administrador, e a primeira abertura fica bem mais rápida em aparelho fraco.
+const WaiterScreen = lazy(() => import('./components/WaiterScreen').then(m => ({ default: m.WaiterScreen })));
+const KitchenScreen = lazy(() => import('./components/KitchenScreen').then(m => ({ default: m.KitchenScreen })));
+const CashierScreen = lazy(() => import('./components/CashierScreen').then(m => ({ default: m.CashierScreen })));
+const ReportsStockScreen = lazy(() => import('./components/ReportsStockScreen').then(m => ({ default: m.ReportsStockScreen })));
+const AdminScreen = lazy(() => import('./components/AdminScreen').then(m => ({ default: m.AdminScreen })));
+const FiscalScreen = lazy(() => import('./components/FiscalScreen').then(m => ({ default: m.FiscalScreen })));
+
+/** Mostrado enquanto o pedaço da tela carrega (no modo leve vira só o texto, sem animação). */
+function ScreenFallback() {
+  return (
+    <div className="page screen-loading" role="status" aria-live="polite">
+      <RefreshCw size={22} className="spin" aria-hidden="true" />
+      <span>Carregando...</span>
+    </div>
+  );
+}
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -102,6 +116,7 @@ function AuthenticatedApp({ role }: { role: UserRole }) {
       <Header isOnline={isOnline} />
       <LicenseBanner />
       <main>
+        <Suspense fallback={<ScreenFallback />}>
         <Routes>
           <Route path="/" element={<Navigate to={homeFor(role)} replace />} />
           <Route path="/garcom" element={<Guard role={role} path="/garcom"><WaiterScreen /></Guard>} />
@@ -113,6 +128,7 @@ function AuthenticatedApp({ role }: { role: UserRole }) {
           <Route path="/admin" element={<Guard role={role} path="/admin"><AdminScreen /></Guard>} />
           <Route path="*" element={<Navigate to={homeFor(role)} replace />} />
         </Routes>
+        </Suspense>
       </main>
     </div>
   );

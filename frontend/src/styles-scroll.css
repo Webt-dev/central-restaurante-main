@@ -97,7 +97,7 @@
 .fiscal-cancelado { background: var(--bg-subtle); color: var(--text-secondary); }
 
 .chave-acesso {
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 0.74rem;
   letter-spacing: 0.02em;
   word-break: break-all;

@@ -1,11 +1,11 @@
 /**
  * Utilitários fiscais da NFC-e (modelo 65).
  *
- * ATENÇÃO — LEIA ANTES DE USAR EM PRODUÇÃO:
- * Este módulo monta o XML e calcula a chave de acesso, mas NÃO assina
- * digitalmente e NÃO transmite para a SEFAZ. Um documento sem assinatura
- * ICP-Brasil e sem protocolo de autorização NÃO tem valor fiscal.
- * Veja o LEIA-ME para o que falta até a emissão oficial.
+ * Este módulo só traz utilitários puros (chave de acesso, dígitos verificadores,
+ * validação de CPF/CNPJ, tabelas de código). A assinatura digital e a transmissão
+ * para a SEFAZ NÃO acontecem aqui: são feitas pelo FiscalProvider configurado
+ * (src/fiscal/), hoje o ACBrMonitorPLUS local, orquestrado por FiscalService.
+ * Nenhuma função deste arquivo fala com a rede nem usa certificado.
  */
 
 import crypto from 'node:crypto';

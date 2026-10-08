@@ -11,9 +11,14 @@ import { env } from './config/env.js';
 import { initDatabase, db } from './config/database.js';
 import { scheduleBackups } from './services/BackupService.js';
 import { startFiscalWorker } from './fiscal/FiscalService.js';
+import { startRetentionWorker } from './services/LgpdService.js';
 import { startLicenseWorker } from './license/LicenseService.js';
 import { initSocketIO } from './sockets/socketManager.js';
 import apiRoutes from './routes/index.js';
+import { securityHeaders } from './middlewares/securityHeaders.js';
+import { createRateLimiter } from './middlewares/rateLimit.js';
+import { AuthService } from './services/AuthService.js';
+import { getInstallCode, installCodeFile } from './config/installCode.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { initMDNS, stopMDNS } from './utils/mdns.js';
 import { getLocalIpAddress } from './utils/networkUtils.js';
@@ -26,30 +31,13 @@ initDatabase();
 scheduleBackups(db);
 startFiscalWorker();
 startLicenseWorker();
+startRetentionWorker();
 
 const app = express();
 const httpServer = createServer(app);
 
 // Inicializar WebSockets em tempo real (Socket.IO)
 initSocketIO(httpServer);
-
-// Middlewares globais
-app.disable('x-powered-by');
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  next();
-});
-// Em produção o frontend vem do próprio servidor (mesma origem) e não há CORS.
-// No desenvolvimento o Vite usa proxy, mas liberamos a origem para facilitar testes.
-if (env.NODE_ENV === 'development') {
-  app.use(cors({ origin: true }));
-}
-app.use(express.json({ limit: '1mb' }));
-
-// Rotas da API RESTful
-app.use('/api', apiRoutes);
 
 // Resolução dinâmica do caminho da pasta do Frontend compilado (Vite dist)
 const possibleDistPaths = [
@@ -60,6 +48,21 @@ const possibleDistPaths = [
 ];
 
 const distPath = possibleDistPaths.find(p => fs.existsSync(path.join(p, 'index.html'))) || possibleDistPaths[0]!;
+
+// Middlewares globais
+app.disable('x-powered-by');
+app.use(securityHeaders(fs.existsSync(path.join(distPath, 'index.html')) ? distPath : null));
+// Em produção o frontend vem do próprio servidor (mesma origem) e não há CORS.
+// No desenvolvimento o Vite usa proxy, mas liberamos a origem para facilitar testes.
+if (env.NODE_ENV === 'development') {
+  app.use(cors({ origin: true }));
+}
+app.use(express.json({ limit: '1mb' }));
+
+// Rotas da API RESTful
+// Freio geral contra laço infinito/script abusivo (login e setup têm limites próprios).
+app.use('/api', createRateLimiter());
+app.use('/api', apiRoutes);
 
 if (fs.existsSync(distPath) && fs.existsSync(path.join(distPath, 'index.html'))) {
   app.use(express.static(distPath));
@@ -112,6 +115,16 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`   Ou digite no celular: ${directAppUrl}`);
   console.log('======================================================================\n');
   
+  // Primeira configuração: o dono precisa deste código para criar o ADMIN (ver config/installCode.ts).
+  if (AuthService.needsSetup()) {
+    console.log('======================================================================');
+    console.log(`🔑 CÓDIGO DE INSTALAÇÃO: ${getInstallCode()}`);
+    console.log('   Digite-o na tela de primeira configuração para criar o administrador.');
+    console.log(`   (Também está salvo em ${installCodeFile()} e some após a configuração.)`);
+    console.log('======================================================================');
+    console.log('');
+  }
+
   // Ativar servidor mDNS (Bonjour ZeroConf)
   initMDNS(PORT, PORT);
 });

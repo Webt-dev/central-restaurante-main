@@ -85,10 +85,15 @@ export const KitchenScreen: React.FC<KitchenScreenProps> = ({ type = 'FOOD' }) =
       socket.on('order:created', loadQueue);
       socket.on('order:status_changed', loadQueue);
     }
-    const poll = setInterval(loadQueue, 20000);
+    // Não consulta o servidor com a aba/tela escondida (poupa bateria e rede);
+    // ao voltar a ficar visível, atualiza na hora.
+    const poll = setInterval(() => { if (!document.hidden) loadQueue(); }, 20000);
+    const onVisible = () => { if (!document.hidden) loadQueue(); };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVisible);
       if (socket) {
         socket.off('order:created', loadQueue);
         socket.off('order:status_changed', loadQueue);

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { db } from '../config/database.js';
+import { maskPii, maskPiiDeep } from '../utils/pii.js';
 import type { AuthenticatedRequest } from '../middlewares/authMiddleware.js';
 
 export interface AuditEntry {
@@ -17,8 +18,10 @@ export interface AuditEntry {
 
 const GENESIS = '0'.repeat(64);
 
+// LGPD: a trilha de auditoria é permanente (append-only), então CPF/e-mail são
+// mascarados ANTES de gravar - depois não dá mais para corrigir sem quebrar o hash.
 function toJson(value: unknown): string | null {
-  return value === undefined || value === null ? null : JSON.stringify(value);
+  return value === undefined || value === null ? null : JSON.stringify(maskPiiDeep(value));
 }
 
 /**
@@ -39,7 +42,7 @@ export function audit(entry: AuditEntry): void {
     entity_id: entry.entityId ?? null,
     before_json: toJson(entry.before),
     after_json: toJson(entry.after),
-    reason: entry.reason ?? null
+    reason: entry.reason ? maskPii(entry.reason) : null
   };
 
   const hash = createHash('sha256').update(prevHash).update(JSON.stringify(row)).digest('hex');

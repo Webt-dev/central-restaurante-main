@@ -26,3 +26,6 @@ release/
 license-server/keys/
 license-server/data/
 license-server/node_modules/
+
+# Dados da execução local de demonstração
+.demo-data/

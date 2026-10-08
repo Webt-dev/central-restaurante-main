@@ -111,3 +111,11 @@ P1: impressão ESC/POS (comandas por setor, DANFE, gaveta); configuração por c
 LGPD no produto (relatório/anonimização por CPF, retenção); conformidade do cardápio
 (alérgenos, alerta de bebida alcoólica, couvert opcional); HTTPS/PWA na LAN.
 P2: relatórios com ML; módulos rodízio/varejo/delivery; portal na nuvem; performance e limpeza.
+
+## Rodada de auditoria (07/10/2026) — feito e pendente
+
+Auditoria por especialistas (segurança 7,5/10; LGPD 4,5/10 antes dos ajustes). Contrato e termos em `docs/juridico/` (rascunhos; precisam de advogado).
+**Feito no código:** código de instalação para o 1º ADMIN (mostrado pelo Electron); CSP e cabeçalhos; rate limit global; pragmas SQLite; máscara de CPF/e-mail em logs, auditoria e Socket.IO; rotas LGPD (`/api/admin/lgpd/titular|anonimizar`) e retenção de 5 anos; backup cifrado opcional (`BACKUP_ENCRYPT=1`); trial de 7 dias emitido pelo servidor (`POST /v1/trial`, uma vez por máquina/CNPJ/e-mail); segredo de dispositivo; auditoria, limites e exportação/eliminação LGPD no license-server; fontes locais, code splitting (JS inicial 580→345 kB), modo leve (Gestão → Aparência), tema claro com mais contraste.
+**Painel e régua (license-server):** status derivado no servidor, `/admin/ui` (dashboard), `/admin/metrics|upcoming|clients|extend|notify`, régua D-3…BLOQUEIO/REATIVACAO + avaliação por e-mail (Resend) e WhatsApp (Meta), com simulação padrão; falta criar as contas e templates (ver license-server/README.md).
+**Pendente:** tela do frontend para registrar o trial (nome, CNPJ, e-mail, consentimento → `POST /api/license/trial`); `LICENSE_SERVER_URL` no instalador; modo leve gravado no servidor (hoje só no aparelho do ADMIN); `GET /api/tenant`/`tenant.json`; dashboard de cobrança e régua de avisos (e-mail + WhatsApp oficial); publicar o license-server (`TRUST_PROXY`, chave de produção); XML do ACBr ainda guarda CPF; testar ACBr real em homologação (RJ); impressão do DANFE, inutilização, Lei 12.741; empresa ainda não existe (LTDA/SLU).
+**Decisões:** mercado inicial Rio de Janeiro; WhatsApp oficial (Meta); sem Windows 7/8 (mantém Electron atual; mínimo Win10, 4 GB).

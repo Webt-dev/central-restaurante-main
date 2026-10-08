@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { applyPerf, getStoredPerf, type PerfPreference } from '../services/theme';
 import type { Table, MenuItem, InventoryItem, RestaurantSettings, ThemePreference } from '../types';
 import { UsersPanel } from './UsersPanel';
 import { SupervisorPinSettings } from './SupervisorPinSettings';
@@ -13,7 +14,7 @@ import { formatQuantity, cleanInventoryName, getStockHealth, UNIT_OPTIONS, unitL
 import {
   Utensils, Package, Settings, Plus, Trash2, Pencil, Save, X, CheckCircle2,
   AlertTriangle, Grid, CreditCard, Building2, RefreshCw, Search,
-  KeyRound, Percent, Users, Palette, Sun, Moon, Monitor, Blocks, ShieldCheck
+  KeyRound, Percent, Users, Palette, Sun, Moon, Monitor, Zap, Blocks, ShieldCheck
 } from 'lucide-react';
 
 type AdminTab = 'tables' | 'menu' | 'inventory' | 'users' | 'modules' | 'license' | 'settings';
@@ -22,6 +23,12 @@ const THEME_OPTIONS: { key: ThemePreference; label: string; hint: string; Icon: 
   { key: 'light', label: 'Claro', hint: 'Fundo claro em todos os aparelhos', Icon: Sun },
   { key: 'dark', label: 'Escuro', hint: 'Fundo escuro em todos os aparelhos', Icon: Moon },
   { key: 'system', label: 'Usar cores do sistema', hint: 'Cada aparelho segue o tema do próprio celular ou computador', Icon: Monitor }
+];
+
+const PERF_OPTIONS: { key: PerfPreference; label: string; hint: string }[] = [
+  { key: 'auto', label: 'Automático', hint: 'Liga o modo leve sozinho em aparelhos fracos' },
+  { key: 'full', label: 'Completo', hint: 'Animações e sombras sempre ligadas' },
+  { key: 'lite', label: 'Leve', hint: 'Sem animações e sombras: mais fluido em celular antigo' }
 ];
 
 const PAYMENT_OPTIONS = [
@@ -113,6 +120,14 @@ export const AdminScreen: React.FC = () => {
   function showMessage(type: 'success' | 'error', text: string) {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 4000);
+  }
+
+  const [perf, setPerf] = useState<PerfPreference>(getStoredPerf());
+
+  function handlePerfChange(next: PerfPreference) {
+    setPerf(next);
+    applyPerf(next);
+    showMessage('success', 'Modo de desempenho aplicado neste aparelho.');
   }
 
   async function handleThemeChange(theme: ThemePreference) {
@@ -845,6 +860,31 @@ export const AdminScreen: React.FC = () => {
                     className={`choice ${selected ? 'is-selected' : ''}`}
                   >
                     <Icon size={20} />
+                    <span className="choice-text">
+                      <span className="choice-label">{label}</span>
+                      <span className="hint">{hint}</span>
+                    </span>
+                    {selected && <CheckCircle2 size={18} className="choice-check" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            <h3 className="section-title" style={{ marginTop: '18px' }}>Desempenho</h3>
+            <p className="hint" style={{ margin: '4px 0 14px' }}>Vale para este aparelho. Em celular antigo, o modo leve deixa tudo mais fluido sem mudar cores nem fontes.</p>
+            <div className="choice-list" role="radiogroup" aria-label="Modo de desempenho">
+              {PERF_OPTIONS.map(({ key, label, hint }) => {
+                const selected = perf === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => handlePerfChange(key)}
+                    className={`choice ${selected ? 'is-selected' : ''}`}
+                  >
+                    <Zap size={20} />
                     <span className="choice-text">
                       <span className="choice-label">{label}</span>
                       <span className="hint">{hint}</span>

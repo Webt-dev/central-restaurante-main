@@ -15,7 +15,30 @@ router.get('/status', (req, res) => {
   if ((req as AuthenticatedRequest).user?.role !== 'ADMIN') {
     return res.json({ state: st.state, blocked: st.blocked, message: st.message, daysLeft: st.daysLeft, daysOverdue: st.daysOverdue, daysUntilBlock: st.daysUntilBlock, enforced: st.enforced });
   }
-  res.json(st);
+  // O segredo do dispositivo só vai para o ADMIN: o celular dele precisa dele (cabeçalho
+  // x-device-secret) para buscar a licença direto no servidor quando a central está sem internet.
+  res.json({ ...st, deviceSecret: License.getDeviceSecret(st.clientId) });
+});
+
+// Avaliação gratuita: registra no servidor quando há internet; sem internet segue com a avaliação
+// local de 7 dias e registra depois (202). Se o servidor disser que já foi usada, responde 409.
+router.post('/trial', authorize(['ADMIN']), validateBody(z.object({
+  server_url: z.string().trim().url('Endereço do servidor inválido').optional(),
+  name: z.string().trim().min(2).max(120),
+  cnpj: z.string().trim().min(14).max(24),
+  email: z.string().trim().email().max(120),
+  consent: z.boolean().optional()
+})), async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const { registered, status } = await License.registerTrial({
+      serverUrl: req.body.server_url, name: req.body.name, cnpj: req.body.cnpj, email: req.body.email, consent: req.body.consent
+    });
+    // Sem CNPJ/e-mail na auditoria (dado pessoal): só o resultado.
+    auditRequest(req, { action: 'license.trial', entity: 'license', entityId: status.clientId, after: { registered } });
+    res.status(registered ? 200 : 202).json(status);
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post('/activate', authorize(['ADMIN']), validateBody(z.object({

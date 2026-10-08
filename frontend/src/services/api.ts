@@ -86,6 +86,8 @@ export interface DocumentoFiscal {
 export type LicenseState = 'TRIAL' | 'TRIAL_EXPIRED' | 'ACTIVE' | 'DUE_SOON' | 'GRACE' | 'BLOCKED' | 'INVALID' | 'CLOCK';
 
 export interface LicenseStatus {
+  /** Segredo deste computador (só ADMIN). O celular o envia ao buscar a licença no servidor. */
+  deviceSecret?: string | null;
   state: LicenseState;
   blocked: boolean;
   message: string;
@@ -499,6 +501,11 @@ export const api = {
     return await fetchWithTimeout('/license/activate', { method: 'POST', body: JSON.stringify({ server_url, client_id, activation_code }) }, 20000);
   },
 
+  /** Registra a avaliação de 7 dias no servidor de licenças (sem internet, fica na fila e segue a avaliação local). */
+  async registerTrial(data: { server_url?: string; name: string; cnpj: string; email: string; consent: boolean }): Promise<LicenseStatus> {
+    return await fetchWithTimeout('/license/trial', { method: 'POST', body: JSON.stringify(data) }, 25000);
+  },
+
   async refreshLicense(): Promise<LicenseStatus> {
     return await fetchWithTimeout('/license/refresh', { method: 'POST' }, 20000);
   },
@@ -511,11 +518,14 @@ export const api = {
    * Renovação sem internet na central: ESTE aparelho (o celular do ADMIN, no 4G)
    * busca a licença direto no servidor de licenças e a entrega à central pela rede local.
    */
-  async fetchLicenseFromCloud(serverUrl: string, clientId: string, fingerprint: string): Promise<string> {
+  async fetchLicenseFromCloud(serverUrl: string, clientId: string, fingerprint: string, deviceSecret?: string | null): Promise<string> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(`${serverUrl}/v1/licenses/${encodeURIComponent(clientId)}?hw=${fingerprint}`, { signal: controller.signal });
+      const res = await fetch(`${serverUrl}/v1/licenses/${encodeURIComponent(clientId)}?hw=${fingerprint}`, {
+        signal: controller.signal,
+        headers: deviceSecret ? { 'x-device-secret': deviceSecret } : undefined
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.token) throw new Error(body.error || `Servidor de licenças respondeu ${res.status}.`);
       return body.token as string;
@@ -533,14 +543,14 @@ export const api = {
   // SESSÃO
   // ==========================================
 
-  async setupStatus(): Promise<{ needsSetup: boolean }> {
+  async setupStatus(): Promise<{ needsSetup: boolean; needsInstallCode?: boolean }> {
     return await fetchWithTimeout('/auth/setup-status');
   },
 
-  async setup(name: string, username: string, password: string): Promise<Session> {
+  async setup(name: string, username: string, password: string, installCode?: string): Promise<Session> {
     const data = await fetchWithTimeout('/auth/setup', {
       method: 'POST',
-      body: JSON.stringify({ name, username, password })
+      body: JSON.stringify({ name, username, password, installCode })
     });
     const session: Session = { token: data.token, user: data.user };
     setSession(session);

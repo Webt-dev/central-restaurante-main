@@ -21,10 +21,14 @@ export function useLicense(): [LicenseStatus | null, () => Promise<void>] {
   useEffect(() => {
     load();
     socket.on('license:updated', load);
-    const timer = setInterval(load, 5 * 60 * 1000);
+    // Pausa com a tela escondida e atualiza ao voltar a ficar visível.
+    const timer = setInterval(() => { if (!document.hidden) load(); }, 5 * 60 * 1000);
+    const onVisible = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       socket.off('license:updated', load);
       clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 

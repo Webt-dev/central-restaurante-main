@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { KeyRound, RefreshCw, Smartphone, FileUp, ShieldCheck, AlertTriangle, CheckCircle2, Clock, Lock } from 'lucide-react';
+import { KeyRound, RefreshCw, Rocket, Smartphone, FileUp, ShieldCheck, AlertTriangle, CheckCircle2, Clock, Lock } from 'lucide-react';
 import { api, type LicenseState } from '../services/api';
 import { useLicense } from '../services/license';
 
@@ -32,6 +32,7 @@ export const LicensePanel: React.FC<LicensePanelProps> = ({ onMessage }) => {
   const [showActivate, setShowActivate] = useState(false);
   const [form, setForm] = useState({ server_url: '', client_id: '', activation_code: '' });
   const [tokenText, setTokenText] = useState('');
+  const [trial, setTrial] = useState({ server_url: '', name: '', cnpj: '', email: '', consent: false });
 
   if (!status) return <div className="empty-state">Carregando...</div>;
 
@@ -57,10 +58,20 @@ export const LicensePanel: React.FC<LicensePanelProps> = ({ onMessage }) => {
     setShowActivate(false);
   }
 
+  async function handleTrial(e: React.FormEvent) {
+    e.preventDefault();
+    if (!trial.consent) return onMessage('error', 'Marque a autorização para continuar.');
+    const server_url = (status?.serverUrl || trial.server_url).trim();
+    await run('trial', () => api.registerTrial({
+      server_url: server_url || undefined,
+      name: trial.name.trim(), cnpj: trial.cnpj.trim(), email: trial.email.trim(), consent: trial.consent
+    }), 'Avaliação registrada. Se o computador estiver sem internet, o registro é enviado sozinho quando a conexão voltar.');
+  }
+
   async function handleViaPhone() {
     if (!status?.serverUrl || !status.clientId || !status.fingerprint) return;
     await run('phone', async () => {
-      const token = await api.fetchLicenseFromCloud(status.serverUrl!, status.clientId!, status.fingerprint!);
+      const token = await api.fetchLicenseFromCloud(status.serverUrl!, status.clientId!, status.fingerprint!, status.deviceSecret);
       await api.installLicense(token);
     }, 'Licença renovada pelo celular.');
   }
@@ -108,6 +119,46 @@ export const LicensePanel: React.FC<LicensePanelProps> = ({ onMessage }) => {
           </button>
         </div>
       </section>
+
+      {!activated && status.state === 'TRIAL' && (
+        <form onSubmit={handleTrial} className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <h3 className="section-title"><Rocket size={18} /> Registrar a avaliação gratuita</h3>
+          <p className="hint">
+            Informe os dados do estabelecimento para registrar os 7 dias de teste. Cada estabelecimento tem direito a uma
+            avaliação; depois dela, o sistema só bloqueia (seus dados ficam guardados) até você contratar.
+          </p>
+          <div className="form-grid">
+            {!status.serverUrl && (
+              <div className="field">
+                <label className="label" htmlFor="trial-url">Servidor de licenças</label>
+                <input id="trial-url" className="input" placeholder="https://licencas.seudominio.com.br" value={trial.server_url} onChange={e => setTrial({ ...trial, server_url: e.target.value })} />
+              </div>
+            )}
+            <div className="field">
+              <label className="label" htmlFor="trial-name">Nome do estabelecimento</label>
+              <input id="trial-name" className="input" value={trial.name} onChange={e => setTrial({ ...trial, name: e.target.value })} required minLength={2} />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="trial-cnpj">CNPJ</label>
+              <input id="trial-cnpj" className="input" inputMode="numeric" placeholder="00.000.000/0000-00" value={trial.cnpj} onChange={e => setTrial({ ...trial, cnpj: e.target.value })} required minLength={14} />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="trial-email">E-mail para avisos</label>
+              <input id="trial-email" type="email" className="input" autoCapitalize="none" value={trial.email} onChange={e => setTrial({ ...trial, email: e.target.value })} required />
+            </div>
+          </div>
+          <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+            <input type="checkbox" checked={trial.consent} onChange={e => setTrial({ ...trial, consent: e.target.checked })} style={{ marginTop: '3px' }} />
+            <span className="hint">
+              Autorizo o uso destes dados para registrar a avaliação e enviar avisos de vencimento e cobrança por e-mail,
+              conforme a Política de Privacidade.
+            </span>
+          </label>
+          <button type="submit" className="btn btn-primary" disabled={busy !== null || !trial.consent}>
+            <Rocket size={16} /> {busy === 'trial' ? 'Registrando...' : 'Registrar avaliação'}
+          </button>
+        </form>
+      )}
 
       {showActivate && (
         <form onSubmit={handleActivate} className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

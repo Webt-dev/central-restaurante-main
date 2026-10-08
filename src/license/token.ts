@@ -22,6 +22,8 @@ export interface LicensePayload {
   issuedAt: string;
   /** Hora do servidor na emissão — usada para detectar relógio atrasado. */
   serverTime: string;
+  /** true = avaliação (trial) emitida pelo servidor: 7 dias, todos os módulos, sem carência. */
+  trial?: boolean;
 }
 
 /**
